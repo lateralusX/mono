@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <mono/metadata/assembly.h>
 #include <mono/utils/mono-mmap.h>
+#include <mono/utils/mono-typecast-helper.h>
 #include "mini.h"
 
 #ifdef HAVE_UNISTD_H
@@ -59,13 +60,13 @@ probe_embedded (const char *program, int *ref_argc, char **ref_argv [])
 	if (memcmp (sigbuffer+sizeof(uint64_t), "xmonkeysloveplay", 16) != 0)
 		goto doclose;
 	directory_location = GUINT64_FROM_LE ((*(uint64_t *) &sigbuffer [0]));
-	if (lseek (fd, directory_location, SEEK_SET) == -1)
+	if (lseek (fd, MONO_WIN32_UINT64_TO_LONG(directory_location), SEEK_SET) == -1)
 		goto doclose;
 	directory_size = sigstart-directory_location;
 	directory = g_malloc (directory_size);
 	if (directory == NULL)
 		goto doclose;
-	if (read (fd, directory, directory_size) == -1)
+	if (read (fd, directory, MONO_WIN32_UINT64_TO_UINT(directory_size)) == -1)
 		goto dofree;
 
 	items = STREAM_INT (directory);
@@ -89,11 +90,11 @@ probe_embedded (const char *program, int *ref_argc, char **ref_argv [])
 				perror ("Error mapping file");
 				exit (1);
 			}
-			baseline = offset;
+			baseline = MONO_UINT64_TO_OFF_T(offset);
 		}
 		if (strncmp (kind, "assembly:", strlen ("assembly:")) == 0){
 			char *aname = kind + strlen ("assembly:");
-			MonoBundledAssembly mba = { aname, mapaddress + offset - baseline, item_size }, *ptr;
+			MonoBundledAssembly mba = { aname, mapaddress + offset - baseline, MONO_UINT64_TO_UINT(item_size) }, *ptr;
 			ptr = g_new (MonoBundledAssembly, 1);
 			memcpy (ptr, &mba, sizeof (MonoBundledAssembly));
 			g_array_append_val  (assemblies, ptr);

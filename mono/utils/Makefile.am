@@ -154,7 +154,8 @@ monoutils_sources = \
 	checked-build.c \
 	checked-build.h \
 	w32handle.c \
-	w32handle.h
+	w32handle.h \
+	mono-typecast-helper.h
 
 arch_sources = 
 
