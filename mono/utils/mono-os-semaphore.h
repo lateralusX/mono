@@ -291,7 +291,8 @@ typedef HANDLE MonoSemType;
 static inline void
 mono_os_sem_init (MonoSemType *sem, int value)
 {
-	*sem = CreateSemaphore (NULL, value, 0x7FFFFFFF, NULL);
+	*sem = CreateSemaphoreEx (NULL, value, 0x7FFFFFFF, NULL, 0, SEMAPHORE_ALL_ACCESS);
+
 	if (G_UNLIKELY (*sem == NULL))
 		g_error ("%s: CreateSemaphore failed with error %d", __func__, GetLastError ());
 }

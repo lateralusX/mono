@@ -40,6 +40,10 @@
 #include <string.h>
 #include <errno.h>
 
+#ifdef HOST_WIN32
+#include <objbase.h>
+#endif
+
 /*
 Code shared between the DISABLE_COM and !DISABLE_COM
 */

@@ -25,8 +25,8 @@
 #include <ws2tcpip.h>
 #endif
 #include <psapi.h>
-#include <shlobj.h>
-/*
+
+ /*
  * Workaround for missing WSAPOLLFD typedef in mingw's winsock2.h that is required for mswsock.h below.
  * Remove once http://sourceforge.net/p/mingw/bugs/1980/ is fixed.
  */
@@ -37,7 +37,12 @@ typedef struct pollfd {
   short  revents;
 } WSAPOLLFD, *PWSAPOLLFD, *LPWSAPOLLFD;
 #endif
+
+//TODO: Fix for non desktop as well.
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
 #include <mswsock.h>
+#endif
+
 #else	/* EVERYONE ELSE */
 #include "mono/io-layer/wapi.h"
 #include "mono/io-layer/uglify.h"
