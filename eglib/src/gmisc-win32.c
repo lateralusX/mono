@@ -32,6 +32,7 @@
 #include <windows.h>
 #include <direct.h>
 #include <io.h>
+#include <assert.h>
 
 const gchar *
 g_getenv(const gchar *variable)
@@ -84,6 +85,8 @@ g_unsetenv(const gchar *variable)
 	g_free(var);
 }
 
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+
 gchar*
 g_win32_getlocale(void)
 {
@@ -94,6 +97,29 @@ g_win32_getlocale(void)
 	ccBuf += GetLocaleInfoA(lcid, LOCALE_SISO3166CTRYNAME, buf + ccBuf, 9);
 	return g_strdup (buf);
 }
+
+#else
+
+gchar*
+g_win32_getlocale(void)
+{
+	gunichar2 buf[19];
+	gint ccBuf = GetLocaleInfoEx (LOCALE_NAME_USER_DEFAULT, LOCALE_SISO639LANGNAME2, buf, 9);
+	assert (ccBuf <= 9);
+	if (ccBuf != 0) {
+		buf[ccBuf] = L'-';
+		ccBuf = GetLocaleInfoEx (LOCALE_NAME_USER_DEFAULT, LOCALE_SISO3166CTRYNAME2, buf + ccBuf, 9);
+		assert (ccBuf <= 9);
+	}
+
+	// Check for GetLocaleInfoEx failure.
+	if (ccBuf == 0)
+		buf[0] = L'\0';
+	
+	return u16to8 (buf);
+}
+
+#endif
 
 gboolean
 g_path_is_absolute (const char *filename)

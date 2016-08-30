@@ -1062,6 +1062,10 @@ glong     g_utf8_pointer_to_offset (const gchar *str, const gchar *pos);
 #define _EGLIB_MINOR  0
  
 #define GLIB_CHECK_VERSION(a,b,c) ((a < _EGLIB_MAJOR) || (a == _EGLIB_MAJOR && (b < _EGLIB_MIDDLE || (b == _EGLIB_MIDDLE && c <= _EGLIB_MINOR))))
+
+#ifdef G_OS_WIN32
+#define g_unsupported_windows_api(name, family) G_STMT_START { g_critical ("%s:%d: '%s' not supported by Windows API Family '%d'.", __FILE__, __LINE__, name, family); } G_STMT_END
+#endif
  
 G_END_DECLS
 

@@ -27,7 +27,6 @@
  */
 
 #include <config.h>
-
 #include <glib.h>
 #include <stdio.h>
 #include <string.h>
@@ -37,6 +36,10 @@
 #include <errno.h>
 
 static gpointer error_quark = "FileError";
+
+#ifdef G_OS_WIN32
+#include <posix-names-win32.h>
+#endif
 
 gpointer
 g_file_error_quark (void)

@@ -37,10 +37,8 @@
 #include <fcntl.h>
 #include <errno.h>
 
-#ifdef _MSC_VER
-#include <direct.h>
-#endif
 #ifdef G_OS_WIN32
+#include <posix-names-win32.h>
 int mkstemp (char *tmp_template);
 #endif
 

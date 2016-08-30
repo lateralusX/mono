@@ -211,7 +211,11 @@ g_get_charset (G_CONST_RETURN char **charset)
 	if (my_charset == NULL) {
 #ifdef G_OS_WIN32
 		static char buf [14];
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
 		sprintf (buf, "CP%u", GetACP ());
+#else
+		sprintf (buf, "CP%u", CP_ACP);
+#endif
 		my_charset = buf;
 		is_utf8 = FALSE;
 #else

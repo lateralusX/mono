@@ -33,6 +33,7 @@
 
 #ifdef G_OS_WIN32
 #include <direct.h> 
+#include <posix-names-win32.h>
 #endif
 
 #ifdef HAVE_UNISTD_H

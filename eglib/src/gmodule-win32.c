@@ -68,6 +68,8 @@ g_module_open (const gchar *file, GModuleFlags flags)
 	return module;
 }
 
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+
 static gpointer
 w32_find_symbol (const gchar *symbol_name)
 {
@@ -115,6 +117,19 @@ w32_find_symbol (const gchar *symbol_name)
 	return NULL;
 }
 
+#else
+
+#include "intsafe.h"
+static gpointer
+w32_find_symbol (const gchar *symbol_name)
+{
+
+	g_unsupported_windows_api ("EnumProcessModules", WINAPI_FAMILY);
+	return NULL;
+}
+
+#endif
+
 gboolean
 g_module_symbol (GModule *module, const gchar *symbol_name, gpointer *symbol)
 {
@@ -134,6 +149,8 @@ g_module_symbol (GModule *module, const gchar *symbol_name, gpointer *symbol)
 	}
 }
 
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+
 const gchar *
 g_module_error (void)
 {
@@ -150,6 +167,25 @@ g_module_error (void)
 
 	return ret;
 }
+
+#else
+
+const gchar *
+g_module_error (void)
+{
+	gchar* ret = NULL;
+	TCHAR buf[1024];
+	DWORD code = GetLastError ();
+	
+	if (!FormatMessage (FORMAT_MESSAGE_FROM_SYSTEM, NULL, 
+		code, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), buf, G_N_ELEMENTS(buf) - 1, NULL) )
+		buf[0] = TEXT('\0');
+
+	ret = u16to8 (buf);
+	return ret;
+}
+
+#endif
 
 gboolean
 g_module_close (GModule *module)

@@ -37,8 +37,7 @@
 #include <sys/types.h>
 
 #ifdef G_OS_WIN32
-#include <io.h>
-#define open _open
+#include <posix-names-win32.h>
 #ifndef S_ISREG
 #define S_ISREG(x) ((x &  _S_IFMT) == _S_IFREG)
 #endif
