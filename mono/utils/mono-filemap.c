@@ -23,6 +23,10 @@
 
 #include "mono-mmap.h"
 
+#ifdef TARGET_WIN32
+#include <posix-names-win32.h>
+#endif
+
 MonoFileMap *
 mono_file_map_open (const char* name)
 {

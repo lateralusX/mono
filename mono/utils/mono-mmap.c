@@ -165,6 +165,8 @@ mono_vfree (void *addr, size_t length)
 	return 0;
 }
 
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+
 void*
 mono_file_map (size_t length, int flags, int fd, guint64 offset, void **ret_handle)
 {
@@ -208,6 +210,76 @@ mono_file_unmap (void *addr, void *handle)
 	CloseHandle ((HANDLE)handle);
 	return 0;
 }
+
+#else
+
+#define MONO_EMULATE_WIN32_FILE_MAPPING_API
+#ifdef MONO_EMULATE_WIN32_FILE_MAPPING_API
+
+void*
+mono_file_map (size_t length, int flags, int fd, guint64 offset, void **ret_handle)
+{
+	g_return_val_if_fail (ret_handle != NULL, NULL);
+
+	gchar *buffer = VirtualAlloc (NULL, length, MEM_COMMIT, PAGE_READWRITE);
+	size_t total_read = 0;
+
+	// emulate file mapping by reading complete file into into allocated virtual memory.
+	if (buffer != NULL && _lseeki64 (fd, offset, SEEK_SET) != -1) {
+		int nread = -1;
+
+		do {
+			// read as much as possible in one go.
+			nread = _read (fd, buffer + total_read, (UINT) MIN (length - total_read, UINT_MAX));
+			if (nread > 0) {
+				total_read += nread;
+			}
+		
+		} while ((nread > 0 && total_read < length) || (nread == -1 && errno == EINTR));
+
+		DWORD oldProtection;
+		VirtualProtect (buffer, length, prot_from_flags (flags), &oldProtection);
+	}
+
+	// did we get all requested bytes.
+	if (buffer != NULL && length != total_read) {
+		VirtualFree (buffer, 0, MEM_RELEASE);
+		buffer = NULL;
+	}
+
+	*ret_handle = buffer;
+	return *ret_handle;
+}
+
+int
+mono_file_unmap (void *addr, void *handle)
+{
+	g_return_val_if_fail (addr == handle, 0);
+
+	VirtualFree (addr, 0, MEM_RELEASE);
+	return 0;
+}
+
+#else
+
+void*
+mono_file_map (size_t length, int flags, int fd, guint64 offset, void **ret_handle)
+{
+	g_unsupported_windows_api ("CreateFileMapping,MapViewOfFile", WINAPI_FAMILY);
+
+	*ret_handle = NULL;
+	return NULL;
+}
+
+int
+mono_file_unmap (void *addr, void *handle)
+{
+	g_unsupported_windows_api ("UnmapViewOfFile", WINAPI_FAMILY);
+	return 0;
+}
+
+#endif
+#endif
 
 int
 mono_mprotect (void *addr, size_t length, int flags)

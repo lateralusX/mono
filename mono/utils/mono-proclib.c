@@ -924,10 +924,25 @@ mono_cpu_usage (MonoCpuUsageState *prev)
 	guint64 kernel_time;
 	guint64 user_time;
 
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+
 	if (!GetSystemTimes ((FILETIME*) &idle_time, (FILETIME*) &kernel_time, (FILETIME*) &user_time)) {
 		g_error ("GetSystemTimes() failed, error code is %d\n", GetLastError ());
 		return -1;
 	}
+#else
+	guint64 current_time;
+	guint64 creation_time;
+	guint64 exit_time;
+	
+	GetSystemTimeAsFileTime ((FILETIME*)&current_time);
+	if (!GetProcessTimes (GetCurrentProcess (), (FILETIME*)&creation_time, (FILETIME*)&exit_time, (FILETIME*)&kernel_time, (FILETIME*)&user_time)) {
+		g_error ("GetProcessTimes() failed, error code is %d\n", GetLastError ());
+		return -1;
+	}
+
+	idle_time = (current_time - creation_time) - (kernel_time + user_time);
+#endif
 
 	cpu_total_time = (gint64)((user_time - (prev ? prev->user_time : 0)) + (kernel_time - (prev ? prev->kernel_time : 0)));
 	cpu_busy_time = (gint64)(cpu_total_time - (idle_time - (prev ? prev->idle_time : 0)));

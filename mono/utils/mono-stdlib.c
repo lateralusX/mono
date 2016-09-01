@@ -19,6 +19,10 @@
 #endif
 #include "mono-stdlib.h"
 
+#ifdef TARGET_WIN32
+#include <posix-names-win32.h>
+#endif
+
 #ifndef HAVE_MKSTEMP
 #ifndef O_BINARY
 #define O_BINARY	0

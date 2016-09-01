@@ -27,6 +27,10 @@
 #endif
 #include "mono-logger.h"
 
+#ifdef HOST_WIN32
+#include <Windows.h>
+#endif
+
 static FILE *logFile = NULL;
 static void *logUserData = NULL;
 
@@ -121,7 +125,7 @@ mono_log_write_logfile(const char *domain, GLogLevelFlags level, mono_bool hdr, 
 		struct tm *tod;
 		time(&t);
 		tod = localtime(&t);
-		pid = _getpid();
+		pid = GetCurrentProcessId ();
 		strftime(logTime, sizeof(logTime), "%F %T", tod);
 #endif
 		iLog = sprintf(logMessage, "%s level[%c] mono[%d]: ",
@@ -129,9 +133,9 @@ mono_log_write_logfile(const char *domain, GLogLevelFlags level, mono_bool hdr, 
 	}
 	nLog = sizeof(logMessage) - iLog - 2;
 	vsnprintf(logMessage+iLog, nLog, format, args);
-	iLog = strlen(logMessage);
-	logMessage[iLog++] = '\n';
-	logMessage[iLog++] = '\0';
+	nLog = strlen(logMessage);
+	logMessage[nLog++] = '\n';
+	logMessage[nLog++] = '\0';
 	fputs(logMessage, logFile);
 	fflush(logFile);
 

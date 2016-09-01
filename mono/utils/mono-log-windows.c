@@ -15,6 +15,7 @@
 
 #ifdef HOST_WIN32
 
+#include <Windows.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <ctype.h>
@@ -91,7 +92,7 @@ mono_log_write_syslog(const char *domain, GLogLevelFlags level, mono_bool hdr, c
 	struct tm *tod;
 	char logTime[80],
 	      logMessage[512];
-	pid_t pid;
+	DWORD pid;
 	int iLog = 0;
 	size_t nLog;
 
@@ -100,15 +101,15 @@ mono_log_write_syslog(const char *domain, GLogLevelFlags level, mono_bool hdr, c
 
 	time(&t);
 	tod = localtime(&t);
-	pid = _getpid();
+	pid = GetCurrentProcessId ();
 	strftime(logTime, sizeof(logTime), "%Y-%m-%d %H:%M:%S", tod);
 	iLog = sprintf(logMessage, "%s level[%c] mono[%d]: ",
 		       logTime,mapLogFileLevel(level),pid);
 	nLog = sizeof(logMessage) - iLog - 2;
 	vsnprintf(logMessage+iLog, nLog, format, args);
-	iLog = strlen(logMessage);
-	logMessage[iLog++] = '\n';
-	logMessage[iLog++] = 0;
+	nLog = strlen(logMessage);
+	logMessage[nLog++] = '\n';
+	logMessage[nLog++] = 0;
 	fputs(logMessage, logFile);
 	fflush(logFile);
 

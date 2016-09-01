@@ -28,14 +28,6 @@
 #ifdef HOST_WIN32
 
 #include <windows.h>
-#include <wincrypt.h>
-
-#ifndef PROV_INTEL_SEC
-#define PROV_INTEL_SEC		22
-#endif
-#ifndef CRYPT_VERIFY_CONTEXT
-#define CRYPT_VERIFY_CONTEXT	0xF0000000
-#endif
 
 /**
  * mono_rand_open:
@@ -50,19 +42,23 @@ mono_rand_open (void)
 	return FALSE;
 }
 
-/**
- * mono_rand_init:
- * @seed: A string containing seed data
- * @seed_size: Length of seed string
- *
- * Returns: On success, a non-NULL handle which can be used to fetch random data from mono_rand_try_get_bytes. On failure, NULL.
- *
- * Initializes an RNG client.
- */
-gpointer
-mono_rand_init (guchar *seed, gint seed_size)
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+
+#include <wincrypt.h>
+
+#ifndef PROV_INTEL_SEC
+#define PROV_INTEL_SEC		22
+#endif
+#ifndef CRYPT_VERIFY_CONTEXT
+#define CRYPT_VERIFY_CONTEXT	0xF0000000
+#endif
+
+#define MONO_WIN32_CRYPT_PROVIDER_HANDLE HCRYPTPROV
+
+static MONO_WIN32_CRYPT_PROVIDER_HANDLE
+mono_rand_open_provider ()
 {
-	HCRYPTPROV provider = 0;
+	MONO_WIN32_CRYPT_PROVIDER_HANDLE provider = 0;
 
 	/* There is no need to create a container for just random data,
 	 * so we can use CRYPT_VERIFY_CONTEXT (one call) see: 
@@ -77,6 +73,85 @@ mono_rand_init (guchar *seed, gint seed_size)
 		}
 	}
 
+	return provider;
+}
+
+static void
+mono_rand_close_provider (MONO_WIN32_CRYPT_PROVIDER_HANDLE provider)
+{
+	CryptReleaseContext (provider, 0);
+}
+
+static gboolean
+mono_rand_gen (MONO_WIN32_CRYPT_PROVIDER_HANDLE provider, guchar *buffer, size_t buffer_size)
+{
+	return CryptGenRandom (provider, (DWORD) buffer_size, buffer);
+}
+
+static gboolean
+mono_rand_seed (MONO_WIN32_CRYPT_PROVIDER_HANDLE provider, guchar *seed, size_t seed_size)
+{
+	/* add seeding material to the RNG */
+	return CryptGenRandom (provider, (DWORD) seed_size, seed);
+}
+
+#else
+
+#include <bcrypt.h>
+
+#define MONO_WIN32_CRYPT_PROVIDER_HANDLE BCRYPT_ALG_HANDLE
+
+static MONO_WIN32_CRYPT_PROVIDER_HANDLE
+mono_rand_open_provider ()
+{
+	MONO_WIN32_CRYPT_PROVIDER_HANDLE provider = 0;
+
+	if (!BCRYPT_SUCCESS (BCryptOpenAlgorithmProvider (&provider, BCRYPT_RNG_ALGORITHM, NULL, 0)))
+		provider = 0;
+		
+	return provider;
+}
+
+static gboolean
+mono_rand_gen (MONO_WIN32_CRYPT_PROVIDER_HANDLE provider, guchar *buffer, size_t buffer_size)
+{
+	g_assert (provider != 0 && buffer != 0);
+	return (BCRYPT_SUCCESS (BCryptGenRandom (provider, buffer, (ULONG) buffer_size, 0))) ? TRUE : FALSE;
+}
+
+static gboolean
+mono_rand_seed (MONO_WIN32_CRYPT_PROVIDER_HANDLE provider, guchar *seed, size_t seed_size)
+{
+	g_assert (provider != 0 && seed != 0);
+	return (BCRYPT_SUCCESS (BCryptGenRandom (provider, seed, (ULONG) seed_size, BCRYPT_RNG_USE_ENTROPY_IN_BUFFER))) ? TRUE : FALSE;
+}
+
+static void
+mono_rand_close_provider (MONO_WIN32_CRYPT_PROVIDER_HANDLE provider)
+{
+	g_assert (provider != 0);
+	BCryptCloseAlgorithmProvider (provider, 0);
+}
+
+#endif
+
+/**
+ * mono_rand_init:
+ * @seed: A string containing seed data
+ * @seed_size: Length of seed string
+ *
+ * Returns: On success, a non-NULL handle which can be used to fetch random data from mono_rand_try_get_bytes. On failure, NULL.
+ *
+ * Initializes an RNG client.
+ */
+gpointer
+mono_rand_init (guchar *seed, gint seed_size)
+{
+	MONO_WIN32_CRYPT_PROVIDER_HANDLE provider = 0;
+
+	/* try to open crypto provider. */
+	provider = mono_rand_open_provider ();
+
 	/* seed the CSP with the supplied buffer (if present) */
 	if (provider != 0 && seed) {
 		/* the call we replace the seed with random - this isn't what is
@@ -85,7 +160,7 @@ mono_rand_init (guchar *seed, gint seed_size)
 		if (data) {
 			memcpy (data, seed, seed_size);
 			/* add seeding material to the RNG */
-			CryptGenRandom (provider, seed_size, data);
+			mono_rand_seed (provider, data, seed_size);
 			/* zeroize and free */
 			memset (data, 0, seed_size);
 			g_free (data);
@@ -109,21 +184,32 @@ mono_rand_init (guchar *seed, gint seed_size)
 gboolean
 mono_rand_try_get_bytes (gpointer *handle, guchar *buffer, gint buffer_size, MonoError *error)
 {
-	HCRYPTPROV provider;
+	MONO_WIN32_CRYPT_PROVIDER_HANDLE provider;
 
 	mono_error_init (error);
 
 	g_assert (handle);
-	provider = (HCRYPTPROV) *handle;
+	provider = (MONO_WIN32_CRYPT_PROVIDER_HANDLE) *handle;
 
-	if (!CryptGenRandom (provider, buffer_size, buffer)) {
-		CryptReleaseContext (provider, 0);
+	/* generate random bytes */
+	if (!mono_rand_gen (provider, buffer, buffer_size)) {
+		mono_rand_close_provider (provider);
 		/* we may have lost our context with CryptoAPI, but all hope isn't lost yet! */
-		provider = (HCRYPTPROV) mono_rand_init (NULL, 0);
-		if (!CryptGenRandom (provider, buffer_size, buffer)) {
+		provider = mono_rand_open_provider ();
+		if (provider != 0) {
+		
+			/* retry generate of random bytes */
+			if (!mono_rand_gen (provider, buffer, buffer_size)) {
+				/* failure, close provider */
+				mono_rand_close_provider (provider);
+				provider = 0;
+			}
+		}
+
+		/* make sure client gets new opened provider handle or NULL on failure */
+		*handle = (gpointer) provider;
+		if (*handle == 0) {
 			/* exception will be thrown in managed code */
-			CryptReleaseContext (provider, 0);
-			*handle = 0;
 			mono_error_set_execution_engine (error, "Failed to gen random bytes (%d)", GetLastError ());
 			return FALSE;
 		}
@@ -134,15 +220,13 @@ mono_rand_try_get_bytes (gpointer *handle, guchar *buffer, gint buffer_size, Mon
 /**
  * mono_rand_close:
  * @handle: An RNG handle.
- * @buffer: A buffer into which to write random data.
- * @buffer_size: Number of bytes to write into buffer.
  *
  * Releases an RNG handle.
  */
 void
 mono_rand_close (gpointer handle)
 {
-	CryptReleaseContext ((HCRYPTPROV) handle, 0);
+	mono_rand_close_provider ((MONO_WIN32_CRYPT_PROVIDER_HANDLE) handle);
 }
 
 #elif defined (HAVE_SYS_UN_H) && !defined(__native_client__)

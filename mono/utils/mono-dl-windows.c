@@ -48,14 +48,20 @@ mono_dl_open_file (const char *file, int flags)
 	gpointer hModule = NULL;
 	if (file) {
 		gunichar2* file_utf16 = g_utf8_to_utf16 (file, strlen (file), NULL, NULL, NULL);
+
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
 		guint last_sem = SetErrorMode (SEM_FAILCRITICALERRORS);
+#endif
 		guint32 last_error = 0;
 
 		hModule = LoadLibrary (file_utf16);
 		if (!hModule)
 			last_error = GetLastError ();
 
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
 		SetErrorMode (last_sem);
+#endif
+
 		g_free (file_utf16);
 
 		if (!hModule)
@@ -73,22 +79,15 @@ mono_dl_close_handle (MonoDl *module)
 		FreeLibrary (module->handle);
 }
 
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+
 void*
-mono_dl_lookup_symbol (MonoDl *module, const char *symbol_name)
+mono_dl_lookup_symbol_in_process (const char *symbol_name)
 {
 	HMODULE *modules;
 	DWORD buffer_size = sizeof (HMODULE) * 1024;
 	DWORD needed, i;
 	gpointer proc = NULL;
-
-	/* get the symbol directly from the specified module */
-	if (!module->main_module)
-		return GetProcAddress (module->handle, symbol_name);
-
-	/* get the symbol from the main module */
-	proc = GetProcAddress (module->handle, symbol_name);
-	if (proc != NULL)
-		return proc;
 
 	/* get the symbol from the loaded DLLs */
 	modules = (HMODULE *) g_malloc (buffer_size);
@@ -130,11 +129,42 @@ mono_dl_lookup_symbol (MonoDl *module, const char *symbol_name)
 	return NULL;
 }
 
+#else
+
+void*
+mono_dl_lookup_symbol_in_process (const char *symbol_name)
+{
+	g_unsupported_windows_api ("EnumProcessModules", WINAPI_FAMILY);
+	return NULL;
+}
+
+#endif
+
+void*
+mono_dl_lookup_symbol (MonoDl *module, const char *symbol_name)
+{
+	gpointer proc = NULL;
+
+	/* get the symbol directly from the specified module */
+	if (!module->main_module)
+		return GetProcAddress (module->handle, symbol_name);
+
+	/* get the symbol from the main module */
+	proc = GetProcAddress (module->handle, symbol_name);
+	if (proc != NULL)
+		return proc;
+
+	/* get the symbol from the loaded DLLs */
+	return mono_dl_lookup_symbol_in_process (symbol_name);
+}
+
 int
 mono_dl_convert_flags (int flags)
 {
 	return 0;
 }
+
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
 
 char*
 mono_dl_current_error_string (void)
@@ -153,6 +183,24 @@ mono_dl_current_error_string (void)
 	}
 	return ret;
 }
+
+#else
+char*
+mono_dl_current_error_string (void)
+{
+	char* ret = NULL;
+	TCHAR buf[1024];
+	DWORD code = GetLastError ();
+
+	if (!FormatMessage (FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL,
+		code, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), buf, G_N_ELEMENTS(buf) - 1, NULL))
+		buf[0] = TEXT('\0');
+
+	ret = u16to8 (buf);
+	return ret;
+}
+
+#endif
 
 int
 mono_dl_get_executable_path (char *buf, int buflen)

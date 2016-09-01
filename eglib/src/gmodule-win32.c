@@ -119,11 +119,9 @@ w32_find_symbol (const gchar *symbol_name)
 
 #else
 
-#include "intsafe.h"
 static gpointer
 w32_find_symbol (const gchar *symbol_name)
 {
-
 	g_unsupported_windows_api ("EnumProcessModules", WINAPI_FAMILY);
 	return NULL;
 }

@@ -32,6 +32,9 @@
 	
 		#undef getcwd
 		#define getcwd _getcwd
+
+		#undef mktemp
+		#define mktemp _mktemp
 	#endif // !WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
 
 #endif // _MCS_VER

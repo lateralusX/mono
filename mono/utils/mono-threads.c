@@ -36,6 +36,10 @@
 #include <mono/utils/mach-support.h>
 #endif
 
+#ifdef TARGET_WIN32
+#include <posix-names-win32.h>
+#endif
+
 /*
 Mutex that makes sure only a single thread can be suspending others.
 Suspend is a very racy operation since it requires restarting until
