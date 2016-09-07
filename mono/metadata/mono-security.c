@@ -126,7 +126,10 @@ GetSidName (gunichar2 *server, PSID sid, gint32 *size)
 static gunichar2*
 GetSidName (gunichar2 *server, PSID sid, gint32 *size)
 {
+	MonoError error;
 	g_unsupported_api ("LookupAccountSid");
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&error);
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return NULL;
 }
@@ -301,7 +304,10 @@ ves_icall_System_Security_Principal_WindowsIdentity_GetCurrentToken (void)
 gpointer
 ves_icall_System_Security_Principal_WindowsIdentity_GetCurrentToken (void)
 {
+	MonoError error;
 	g_unsupported_api ("OpenThreadToken, OpenProcessToken");
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&error);
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return NULL;
 }
@@ -341,7 +347,10 @@ internal_get_token_name (gpointer token, gunichar2 ** uniname)
 static gint32
 internal_get_token_name (gpointer token, gunichar2 ** uniname)
 {
+	MonoError error;
 	g_unsupported_api ("GetTokenInformation");
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&error);
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return 0;
 }
@@ -508,7 +517,10 @@ ves_icall_System_Security_Principal_WindowsIdentity_GetRoles (gpointer token)
 MonoArray*
 ves_icall_System_Security_Principal_WindowsIdentity_GetRoles (gpointer token)
 {
+	MonoError error;
 	g_unsupported_api ("GetTokenInformation");
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&error);
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return NULL;
 }
@@ -557,7 +569,10 @@ ves_icall_System_Security_Principal_WindowsImpersonationContext_DuplicateToken (
 gpointer
 ves_icall_System_Security_Principal_WindowsImpersonationContext_DuplicateToken (gpointer token)
 {
+	MonoError error;
 	g_unsupported_api ("DuplicateToken");
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&error);
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return NULL;
 }
@@ -585,7 +600,10 @@ ves_icall_System_Security_Principal_WindowsImpersonationContext_SetCurrentToken 
 gboolean
 ves_icall_System_Security_Principal_WindowsImpersonationContext_SetCurrentToken (gpointer token)
 {
+	MonoError error;
 	g_unsupported_api ("ImpersonateLoggedOnUser");
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&error);
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return FALSE;
 }
@@ -604,7 +622,10 @@ ves_icall_System_Security_Principal_WindowsImpersonationContext_RevertToSelf (vo
 gboolean
 ves_icall_System_Security_Principal_WindowsImpersonationContext_RevertToSelf (void)
 {
+	MonoError error;
 	g_unsupported_api ("RevertToSelf");
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&error);
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return FALSE;
 }

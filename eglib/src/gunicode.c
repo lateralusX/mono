@@ -36,6 +36,7 @@
 #include <config.h>
 #include <stdio.h>
 #include <glib.h>
+#include <gapifamily.h>
 #include <unicode-data.h>
 #include <errno.h>
 
@@ -205,28 +206,19 @@ g_filename_from_utf8 (const gchar *utf8string, gssize len, gsize *bytes_read, gs
 	return res;
 }
 
+#ifdef G_OS_WIN32
 gboolean
 g_get_charset (G_CONST_RETURN char **charset)
 {
 	if (my_charset == NULL) {
-#ifdef G_OS_WIN32
 		static char buf [14];
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 		sprintf (buf, "CP%u", GetACP ());
 #else
 		sprintf (buf, "CP%u", CP_ACP);
 #endif
 		my_charset = buf;
 		is_utf8 = FALSE;
-#else
-		/* These shouldn't be heap allocated */
-#if defined(HAVE_LOCALCHARSET_H)
-		my_charset = locale_charset ();
-#else
-		my_charset = "UTF-8";
-#endif
-		is_utf8 = strcmp (my_charset, "UTF-8") == 0;
-#endif
 	}
 	
 	if (charset != NULL)
@@ -234,6 +226,27 @@ g_get_charset (G_CONST_RETURN char **charset)
 
 	return is_utf8;
 }
+
+#else /* G_OS_WIN32 */
+gboolean
+g_get_charset (G_CONST_RETURN char **charset)
+{
+	if (my_charset == NULL) {
+		/* These shouldn't be heap allocated */
+#if defined(HAVE_LOCALCHARSET_H)
+		my_charset = locale_charset ();
+#else
+		my_charset = "UTF-8";
+#endif
+		is_utf8 = strcmp (my_charset, "UTF-8") == 0;
+	}
+	
+	if (charset != NULL)
+		*charset = my_charset;
+
+	return is_utf8;
+}
+#endif /* G_OS_WIN32 */
 
 gchar *
 g_locale_to_utf8 (const gchar *opsysstring, gssize len, gsize *bytes_read, gsize *bytes_written, GError **error)

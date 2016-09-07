@@ -5,6 +5,7 @@
  */
 
 #include "config.h"
+#include <gapifamily.h>
 #include "utils/mono-proclib.h"
 #include "utils/mono-time.h"
 
@@ -889,14 +890,13 @@ mono_atexit (void (*func)(void))
  * battery and performance reasons, shut down cores and
  * lie about the number of active cores.
  */
+#ifndef HOST_WIN32
 gint32
 mono_cpu_usage (MonoCpuUsageState *prev)
 {
 	gint32 cpu_usage = 0;
 	gint64 cpu_total_time;
 	gint64 cpu_busy_time;
-
-#ifndef HOST_WIN32
 	struct rusage resource_usage;
 	gint64 current_time;
 	gint64 kernel_time;
@@ -919,13 +919,26 @@ mono_cpu_usage (MonoCpuUsageState *prev)
 		prev->user_time = user_time;
 		prev->current_time = current_time;
 	}
-#else
+
+	if (cpu_total_time > 0 && cpu_busy_time > 0)
+		cpu_usage = (gint32)(cpu_busy_time * 100 / cpu_total_time);
+
+	return cpu_usage;
+}
+
+#else /* !HOST_WIN32 */
+
+gint32
+mono_cpu_usage (MonoCpuUsageState *prev)
+{
+	gint32 cpu_usage = 0;
+	gint64 cpu_total_time;
+	gint64 cpu_busy_time;
 	guint64 idle_time;
 	guint64 kernel_time;
 	guint64 user_time;
 
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
-
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 	if (!GetSystemTimes ((FILETIME*) &idle_time, (FILETIME*) &kernel_time, (FILETIME*) &user_time)) {
 		g_error ("GetSystemTimes() failed, error code is %d\n", GetLastError ());
 		return -1;
@@ -943,7 +956,6 @@ mono_cpu_usage (MonoCpuUsageState *prev)
 
 	idle_time = (current_time - creation_time) - (kernel_time + user_time);
 #endif
-
 	cpu_total_time = (gint64)((user_time - (prev ? prev->user_time : 0)) + (kernel_time - (prev ? prev->kernel_time : 0)));
 	cpu_busy_time = (gint64)(cpu_total_time - (idle_time - (prev ? prev->idle_time : 0)));
 
@@ -952,10 +964,10 @@ mono_cpu_usage (MonoCpuUsageState *prev)
 		prev->kernel_time = kernel_time;
 		prev->user_time = user_time;
 	}
-#endif
 
 	if (cpu_total_time > 0 && cpu_busy_time > 0)
 		cpu_usage = (gint32)(cpu_busy_time * 100 / cpu_total_time);
 
 	return cpu_usage;
 }
+#endif /* !HOST_WIN32 */

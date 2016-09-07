@@ -50,7 +50,7 @@ mono_dl_open_file (const char *file, int flags)
 	if (file) {
 		gunichar2* file_utf16 = g_utf8_to_utf16 (file, strlen (file), NULL, NULL, NULL);
 
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 		guint last_sem = SetErrorMode (SEM_FAILCRITICALERRORS);
 #endif
 		guint32 last_error = 0;
@@ -59,7 +59,7 @@ mono_dl_open_file (const char *file, int flags)
 		if (!hModule)
 			last_error = GetLastError ();
 
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 		SetErrorMode (last_sem);
 #endif
 
@@ -80,8 +80,7 @@ mono_dl_close_handle (MonoDl *module)
 		FreeLibrary (module->handle);
 }
 
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
-
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 void*
 mono_dl_lookup_symbol_in_process (const char *symbol_name)
 {
@@ -130,16 +129,16 @@ mono_dl_lookup_symbol_in_process (const char *symbol_name)
 	return NULL;
 }
 
-#else
+#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
 
 void*
 mono_dl_lookup_symbol_in_process (const char *symbol_name)
 {
 	g_unsupported_api ("EnumProcessModules");
+	SetLastError (ERROR_NOT_SUPPORTED);
 	return NULL;
 }
-
-#endif
+#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
 
 void*
 mono_dl_lookup_symbol (MonoDl *module, const char *symbol_name)
@@ -165,7 +164,7 @@ mono_dl_convert_flags (int flags)
 	return 0;
 }
 
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 
 char*
 mono_dl_current_error_string (void)
@@ -185,7 +184,8 @@ mono_dl_current_error_string (void)
 	return ret;
 }
 
-#else
+#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+
 char*
 mono_dl_current_error_string (void)
 {
@@ -200,8 +200,7 @@ mono_dl_current_error_string (void)
 	ret = u16to8 (buf);
 	return ret;
 }
-
-#endif
+#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
 
 int
 mono_dl_get_executable_path (char *buf, int buflen)

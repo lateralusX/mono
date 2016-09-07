@@ -1260,7 +1260,10 @@ void ves_icall_System_IO_MonoIO_Lock (HANDLE handle, gint64 position,
 void ves_icall_System_IO_MonoIO_Lock (HANDLE handle, gint64 position,
 				      gint64 length, gint32 *error)
 {
+	MonoError mono_error;
 	g_unsupported_api ("LockFile");
+	mono_error_set_generic_error (&mono_error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&mono_error);
 	*error=ERROR_NOT_SUPPORTED;
 	SetLastError (*error);
 	return;
@@ -1290,7 +1293,10 @@ void ves_icall_System_IO_MonoIO_Unlock (HANDLE handle, gint64 position,
 void ves_icall_System_IO_MonoIO_Unlock (HANDLE handle, gint64 position,
 					gint64 length, gint32 *error)
 {
+	MonoError mono_error;
 	g_unsupported_api ("UnlockFile");
+	mono_error_set_generic_error (&mono_error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&mono_error);
 	*error=ERROR_NOT_SUPPORTED;
 	SetLastError (*error);
 	return;

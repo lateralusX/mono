@@ -55,7 +55,10 @@ ves_icall_System_ConsoleDriver_Isatty (HANDLE handle)
 MonoBoolean
 ves_icall_System_ConsoleDriver_Isatty (HANDLE handle)
 {
+	MonoError error;
 	g_unsupported_api ("GetConsoleMode");
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&error);
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return FALSE;
 }

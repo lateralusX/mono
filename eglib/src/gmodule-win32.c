@@ -69,8 +69,7 @@ g_module_open (const gchar *file, GModuleFlags flags)
 	return module;
 }
 
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
-
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 static gpointer
 w32_find_symbol (const gchar *symbol_name)
 {
@@ -118,16 +117,16 @@ w32_find_symbol (const gchar *symbol_name)
 	return NULL;
 }
 
-#else
+#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
 
 static gpointer
 w32_find_symbol (const gchar *symbol_name)
 {
 	g_unsupported_api ("EnumProcessModules");
+	SetLastError (ERROR_NOT_SUPPORTED);
 	return NULL;
 }
-
-#endif
+#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
 
 gboolean
 g_module_symbol (GModule *module, const gchar *symbol_name, gpointer *symbol)
@@ -148,8 +147,7 @@ g_module_symbol (GModule *module, const gchar *symbol_name, gpointer *symbol)
 	}
 }
 
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
-
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 const gchar *
 g_module_error (void)
 {
@@ -167,7 +165,7 @@ g_module_error (void)
 	return ret;
 }
 
-#else
+#else /* #if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
 
 const gchar *
 g_module_error (void)
@@ -183,8 +181,7 @@ g_module_error (void)
 	ret = u16to8 (buf);
 	return ret;
 }
-
-#endif
+#endif /* #if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
 
 gboolean
 g_module_close (GModule *module)

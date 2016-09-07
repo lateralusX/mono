@@ -13,6 +13,7 @@
 
 #if defined(__WIN32__) || defined(_WIN32)
 /* Native win32 */
+#include <gapifamily.h>
 #define __USE_W32_SOCKETS
 #include <winsock2.h>
 #include <windows.h>
@@ -38,8 +39,7 @@ typedef struct pollfd {
 } WSAPOLLFD, *PWSAPOLLFD, *LPWSAPOLLFD;
 #endif
 
-//TODO: Fix for non desktop as well.
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 #include <mswsock.h>
 #endif
 

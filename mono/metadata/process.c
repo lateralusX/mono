@@ -58,7 +58,10 @@ ves_icall_System_Diagnostics_Process_GetProcess_internal (guint32 pid)
 HANDLE
 ves_icall_System_Diagnostics_Process_GetProcess_internal (guint32 pid)
 {
+	MonoError error;
 	g_unsupported_api ("OpenProcess");
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&error);
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return NULL;
 }
@@ -405,7 +408,7 @@ process_get_fileversion (MonoObject *filever, gunichar2 *filename, MonoError *er
 	g_unsupported_api ("GetFileVersionInfoSize, GetFileVersionInfo, VerQueryValue, VerLanguageName");
 	SetLastError (ERROR_NOT_SUPPORTED);
 	mono_error_init (error);
-	mono_error_set_not_supported (error, G_UNSUPPORTED_API, "GetFileVersionInfoSize, GetFileVersionInfo, VerQueryValue, VerLanguageName", G_API_FAMILY_NAME);
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
 }
 #endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
 
@@ -502,7 +505,7 @@ process_add_module (HANDLE process, HMODULE mod, gunichar2 *filename, gunichar2 
 	g_unsupported_api ("GetModuleInformation");
 	SetLastError (ERROR_NOT_SUPPORTED);
 	mono_error_init (error);
-	mono_error_set_not_supported (error, G_UNSUPPORTED_API, "GetModuleInformation", G_API_FAMILY_NAME);
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
 	return NULL;
 }
 #endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
@@ -615,12 +618,10 @@ MonoArray *
 ves_icall_System_Diagnostics_Process_GetModules_internal (MonoObject *this_obj, HANDLE process)
 {
 	MonoError error;
-
 	g_unsupported_api ("EnumProcessModules, GetModuleBaseName, GetModuleFileNameEx");
-	SetLastError (ERROR_NOT_SUPPORTED);
-	mono_error_init (&error);
-	mono_error_set_not_supported (&error, G_UNSUPPORTED_API, "GetModuleInformation", G_API_FAMILY_NAME);
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
 	mono_error_set_pending_exception (&error);
+	SetLastError (ERROR_NOT_SUPPORTED);
 	return NULL;
 }
 #endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
@@ -769,9 +770,12 @@ ves_icall_System_Diagnostics_Process_ShellExecuteEx_internal (MonoProcessStartIn
 MonoBoolean
 ves_icall_System_Diagnostics_Process_ShellExecuteEx_internal (MonoProcessStartInfo *proc_start_info, MonoProcInfo *process_info)
 {
+	MonoError error;
 	g_unsupported_api ("ShellExecuteEx");
-	SetLastError (ERROR_NOT_SUPPORTED);
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&error);
 	process_info->pid = -ERROR_NOT_SUPPORTED;
+	SetLastError (ERROR_NOT_SUPPORTED);
 	return FALSE;
 }
 #endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
@@ -927,9 +931,12 @@ ves_icall_System_Diagnostics_Process_CreateProcess_internal (MonoProcessStartInf
 MonoBoolean
 ves_icall_System_Diagnostics_Process_CreateProcess_internal (MonoProcessStartInfo *proc_start_info, HANDLE stdin_handle, HANDLE stdout_handle, HANDLE stderr_handle, MonoProcInfo *process_info)
 {
+	MonoError error;
 	g_unsupported_api ("CreateProcess, CreateProcessWithLogon");
-	SetLastError (ERROR_NOT_SUPPORTED);
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&error);
 	process_info->pid = -ERROR_NOT_SUPPORTED;
+	SetLastError (ERROR_NOT_SUPPORTED);
 	return FALSE;
 }
 #endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_TV_TITLE) */
@@ -981,8 +988,8 @@ static gboolean
 internal_enum_processes (DWORD *pids, DWORD count, DWORD *needed)
 {
 	g_unsupported_api ("EnumProcesses");
-	SetLastError (ERROR_NOT_SUPPORTED);
 	*needed = 0;
+	SetLastError (ERROR_NOT_SUPPORTED);
 	return FALSE;
 }
 #endif /* defined(HOST_WIN32) && G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */

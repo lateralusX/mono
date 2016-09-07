@@ -166,7 +166,7 @@ mono_vfree (void *addr, size_t length)
 	return 0;
 }
 
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP | WINAPI_PARTITION_APP)
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP)
 
 void*
 mono_file_map (size_t length, int flags, int fd, guint64 offset, void **ret_handle)
@@ -212,11 +212,10 @@ mono_file_unmap (void *addr, void *handle)
 	return 0;
 }
 
-#else
+#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP) */
 
 #define MONO_EMULATE_WIN32_FILE_MAPPING_API
 #ifdef MONO_EMULATE_WIN32_FILE_MAPPING_API
-
 void*
 mono_file_map (size_t length, int flags, int fd, guint64 offset, void **ret_handle)
 {
@@ -261,14 +260,14 @@ mono_file_unmap (void *addr, void *handle)
 	return 0;
 }
 
-#else
+#else /* MONO_EMULATE_WIN32_FILE_MAPPING_API */
 
 void*
 mono_file_map (size_t length, int flags, int fd, guint64 offset, void **ret_handle)
 {
 	g_unsupported_api ("CreateFileMapping, MapViewOfFile");
-
 	*ret_handle = NULL;
+	SetLastError (ERROR_NOT_SUPPORTED);
 	return NULL;
 }
 
@@ -276,11 +275,11 @@ int
 mono_file_unmap (void *addr, void *handle)
 {
 	g_unsupported_api ("UnmapViewOfFile");
+	SetLastError (ERROR_NOT_SUPPORTED);
 	return 0;
 }
-
-#endif
-#endif
+#endif /* MONO_EMULATE_WIN32_FILE_MAPPING_API */
+#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP) */
 
 int
 mono_mprotect (void *addr, size_t length, int flags)

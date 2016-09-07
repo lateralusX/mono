@@ -2865,7 +2865,10 @@ ves_icall_System_Net_Sockets_Socket_SendFile_internal (SOCKET sock, MonoString *
 gboolean
 ves_icall_System_Net_Sockets_Socket_SendFile_internal (SOCKET sock, MonoString *filename, MonoArray *pre_buffer, MonoArray *post_buffer, gint flags)
 {
+	MonoError error;
 	g_unsupported_api ("TransferFile");
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&error);
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return FALSE;
 }

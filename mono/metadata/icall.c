@@ -6902,11 +6902,10 @@ ICALL_EXPORT MonoArray *
 ves_icall_System_Environment_GetLogicalDrives (void)
 {
 	MonoError error;
-
 	g_unsupported_api ("GetLogicalDriveStrings");
-	SetLastError (ERROR_NOT_SUPPORTED);
 	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
 	mono_error_set_pending_exception (&error);
+	SetLastError (ERROR_NOT_SUPPORTED);
 	return NULL;
 }
 #endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
@@ -7025,7 +7024,10 @@ ves_icall_System_Environment_BroadcastSettingChange (void)
 #if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 	SendMessageTimeout (HWND_BROADCAST, WM_SETTINGCHANGE, (WPARAM)NULL, (LPARAM)L"Environment", SMTO_ABORTIFHUNG, 2000, 0);
 #else
+	MonoError error;
 	g_unsupported_api ("SendMessageTimeout");
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&error);
 	SetLastError (ERROR_NOT_SUPPORTED);
 #endif
 #endif
@@ -7223,7 +7225,10 @@ ves_icall_System_IO_DriveInfo_GetDriveType (MonoString *root_path_name)
 #if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 	return GetDriveType (mono_string_chars (root_path_name));
 #else
+	MonoError error;
 	g_unsupported_api ("GetDriveType");
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&error);
 	return DRIVE_UNKNOWN;
 #endif
 }
@@ -8074,7 +8079,10 @@ ves_icall_Microsoft_Win32_NativeMethods_WaitForInputIdle (gpointer handle, gint3
 #if defined(HOST_WIN32) && G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 	return WaitForInputIdle (handle, milliseconds);
 #else
+	MonoError error;
 	g_unsupported_api ("WaitForInputIdle");
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&error);
 	return WAIT_TIMEOUT;
 #endif
 }
@@ -8085,7 +8093,10 @@ ves_icall_Microsoft_Win32_NativeMethods_GetProcessWorkingSetSize (gpointer handl
 #if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 	return GetProcessWorkingSetSize (handle, min, max);
 #else
+	MonoError error;
 	g_unsupported_api ("GetProcessWorkingSetSize");
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&error);
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return FALSE;
 #endif
@@ -8097,7 +8108,10 @@ ves_icall_Microsoft_Win32_NativeMethods_SetProcessWorkingSetSize (gpointer handl
 #if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 	return SetProcessWorkingSetSize (handle, min, max);
 #else
+	MonoError error;
 	g_unsupported_api ("SetProcessWorkingSetSize");
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&error);
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return FALSE;
 #endif
@@ -8121,7 +8135,10 @@ ves_icall_Microsoft_Win32_NativeMethods_GetPriorityClass (gpointer handle)
 #if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 	return GetPriorityClass (handle);
 #else
+	MonoError error;
 	g_unsupported_api ("GetPriorityClass");
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&error);
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return FALSE;
 #endif
@@ -8133,7 +8150,10 @@ ves_icall_Microsoft_Win32_NativeMethods_SetPriorityClass (gpointer handle, gint3
 #if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 	return SetPriorityClass (handle, priorityClass);
 #else
+	MonoError error;
 	g_unsupported_api ("SetPriorityClass");
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&error);
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return FALSE;
 #endif

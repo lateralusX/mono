@@ -28,6 +28,7 @@
 
 #include <stdlib.h>
 #include <glib.h>
+#include <gapifamily.h>
 
 #include <windows.h>
 #include <direct.h>
@@ -85,8 +86,7 @@ g_unsetenv(const gchar *variable)
 	g_free(var);
 }
 
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
-
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 gchar*
 g_win32_getlocale(void)
 {
@@ -98,7 +98,7 @@ g_win32_getlocale(void)
 	return g_strdup (buf);
 }
 
-#else
+#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
 
 gchar*
 g_win32_getlocale(void)
@@ -118,8 +118,7 @@ g_win32_getlocale(void)
 	
 	return u16to8 (buf);
 }
-
-#endif
+#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
 
 gboolean
 g_path_is_absolute (const char *filename)
@@ -189,4 +188,3 @@ g_get_tmp_dir (void)
 	}
 	return tmp_dir;
 }
-

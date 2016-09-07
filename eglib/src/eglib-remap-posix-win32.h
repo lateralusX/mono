@@ -7,6 +7,7 @@
 #define __EGLIB_REMAP_POSIX_WIN32_H__
 
 #if _MSC_VER
+	#include <gapifamily.h>
 	#include <stdio.h>
 	#include <io.h>
 	#include <direct.h>
@@ -18,7 +19,7 @@
 	*  the build will fail, since the deprecated symbols are no longer defined. This header file can be used in cross platform
 	*  sources to redefine the deprecated POSIX names on Windows to avoid extensive ifdef-ing.
 	*/
-	#if !WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+	#if !G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 		#undef read
 		#define read _read
 
@@ -45,8 +46,8 @@
 
 		#undef strdup
 		#define strdup _strdup
-	#endif // !WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+	#endif /* !G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
 
-#endif // _MCS_VER
+#endif /* _MCS_VER */
 
-#endif // __EGLIB_REMAP_POSIX_WIN32_H__
+#endif /* __EGLIB_REMAP_POSIX_WIN32_H__ */

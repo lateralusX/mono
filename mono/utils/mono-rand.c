@@ -16,6 +16,7 @@
 
 #include <glib.h>
 #include <config.h>
+#include <gapifamily.h>
 
 #include "atomic.h"
 #include "mono-error.h"
@@ -42,7 +43,7 @@ mono_rand_open (void)
 	return FALSE;
 }
 
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 
 #include <wincrypt.h>
 
@@ -95,7 +96,7 @@ mono_rand_seed (MONO_WIN32_CRYPT_PROVIDER_HANDLE provider, guchar *seed, size_t 
 	return CryptGenRandom (provider, (DWORD) seed_size, seed);
 }
 
-#else
+#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
 
 #include <bcrypt.h>
 
@@ -132,8 +133,7 @@ mono_rand_close_provider (MONO_WIN32_CRYPT_PROVIDER_HANDLE provider)
 	g_assert (provider != 0);
 	BCryptCloseAlgorithmProvider (provider, 0);
 }
-
-#endif
+#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
 
 /**
  * mono_rand_init:
