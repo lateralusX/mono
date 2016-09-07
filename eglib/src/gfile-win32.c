@@ -37,7 +37,7 @@
 #include <sys/types.h>
 
 #ifdef G_OS_WIN32
-#include <posix-names-win32.h>
+#include <eglib-remap-posix-win32.h>
 #ifndef S_ISREG
 #define S_ISREG(x) ((x &  _S_IFMT) == _S_IFREG)
 #endif

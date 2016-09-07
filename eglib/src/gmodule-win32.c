@@ -29,6 +29,7 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include <glib.h>
+#include <gapifamily.h>
 #include <gmodule.h>
 #include <windows.h>
 #include <psapi.h>

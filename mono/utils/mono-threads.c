@@ -36,8 +36,8 @@
 #include <mono/utils/mach-support.h>
 #endif
 
-#ifdef TARGET_WIN32
-#include <posix-names-win32.h>
+#ifdef HOST_WIN32
+#include <eglib-remap-posix-win32.h>
 #endif
 
 /*

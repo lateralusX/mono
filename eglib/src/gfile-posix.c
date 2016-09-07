@@ -38,7 +38,7 @@
 #include <errno.h>
 
 #ifdef G_OS_WIN32
-#include <posix-names-win32.h>
+#include <eglib-remap-posix-win32.h>
 int mkstemp (char *tmp_template);
 #endif
 
