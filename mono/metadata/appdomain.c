@@ -14,6 +14,7 @@
 #undef ASSEMBLY_LOAD_DEBUG
 #include <config.h>
 #include <glib.h>
+#include <gapifamily.h>
 #include <string.h>
 #include <errno.h>
 #include <time.h>
@@ -1408,7 +1409,12 @@ shadow_copy_sibling (gchar *src, gint srclen, const char *extension, gchar *targ
 	dest = g_utf8_to_utf16 (target, strlen (target), NULL, NULL, NULL);
 	
 	DeleteFile (dest);
+
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 	copy_result = CopyFile (orig, dest, FALSE);
+#else
+	copy_result = SUCCEEDED (CopyFile2 (orig, dest, NULL));
+#endif
 
 	/* Fix for bug #556884 - make sure the files have the correct mode so that they can be
 	 * overwritten when updated in their original locations. */
@@ -1736,7 +1742,11 @@ mono_make_shadow_copy (const char *filename, MonoError *oerror)
 		return (char *)filename;
 	}
 
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 	copy_result = CopyFile (orig, dest, FALSE);
+#else
+	copy_result = SUCCEEDED (CopyFile2 (orig, dest, NULL));
+#endif
 
 	/* Fix for bug #556884 - make sure the files have the correct mode so that they can be
 	 * overwritten when updated in their original locations. */

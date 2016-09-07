@@ -15,6 +15,7 @@
 #include <config.h>
 
 #include <glib.h>
+#include <gapifamily.h>
 #include <string.h>
 
 #include <mono/metadata/object.h>
@@ -1829,22 +1830,39 @@ HANDLE ves_icall_System_Threading_Mutex_OpenMutex_internal (MonoString *name,
 	return(ret);
 }
 
-
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP)
 HANDLE ves_icall_System_Threading_Semaphore_CreateSemaphore_internal (gint32 initialCount, gint32 maximumCount, MonoString *name, gint32 *error)
-{ 
+{
 	HANDLE sem;
-	
+
 	if (name == NULL) {
 		sem = CreateSemaphore (NULL, initialCount, maximumCount, NULL);
 	} else {
-		sem = CreateSemaphore (NULL, initialCount, maximumCount,
-				       mono_string_chars (name));
+		sem = CreateSemaphore (NULL, initialCount, maximumCount, mono_string_chars (name));
 	}
 
 	*error = GetLastError ();
 
 	return(sem);
 }                                                                   
+
+#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP) */
+
+HANDLE ves_icall_System_Threading_Semaphore_CreateSemaphore_internal (gint32 initialCount, gint32 maximumCount, MonoString *name, gint32 *error)
+{
+	HANDLE sem;
+
+	if (name == NULL) {
+		sem = CreateSemaphoreEx (NULL, initialCount, maximumCount, NULL, 0, SEMAPHORE_ALL_ACCESS);
+	} else {
+		sem = CreateSemaphoreEx (NULL, initialCount, maximumCount, mono_string_chars (name), 0, SEMAPHORE_ALL_ACCESS);
+	}
+
+	*error = GetLastError ();
+
+	return(sem);
+}
+#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP) */
 
 MonoBoolean ves_icall_System_Threading_Semaphore_ReleaseSemaphore_internal (HANDLE handle, gint32 releaseCount, gint32 *prevcount)
 { 

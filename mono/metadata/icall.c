@@ -16,6 +16,7 @@
 
 #include <config.h>
 #include <glib.h>
+#include <gapifamily.h>
 #include <stdarg.h>
 #include <string.h>
 #include <ctype.h>
@@ -95,10 +96,13 @@
 #include <mono/utils/bsearch.h>
 #include <mono/utils/mono-os-mutex.h>
 #include <mono/utils/mono-threads.h>
+#include <gapifamily.h>
 
 #if defined (HOST_WIN32)
 #include <windows.h>
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 #include <shlobj.h>
+#endif
 #endif
 #include "decimal-ms.h"
 #include "number-ms.h"
@@ -6442,11 +6446,12 @@ ves_icall_System_Environment_get_UserName (void)
 	return mono_string_new (mono_domain_get (), g_get_user_name ());
 }
 
+#if defined (HOST_WIN32)
 
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 ICALL_EXPORT MonoString *
 ves_icall_System_Environment_get_MachineName (void)
 {
-#if defined (HOST_WIN32)
 	gunichar2 *buf;
 	guint32 len;
 	MonoString *result;
@@ -6463,7 +6468,25 @@ ves_icall_System_Environment_get_MachineName (void)
 
 	g_free (buf);
 	return result;
-#elif !defined(DISABLE_SOCKETS)
+}
+
+#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+
+ICALL_EXPORT MonoString *
+ves_icall_System_Environment_get_MachineName (void)
+{
+	g_unsupported_api ("GetComputerName");
+	return mono_string_new (mono_domain_get (), "mono");
+}
+#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+
+#else /* HOST_WIN32 */
+
+ICALL_EXPORT MonoString *
+ves_icall_System_Environment_get_MachineName (void)
+{
+
+#if !defined(DISABLE_SOCKETS)
 	MonoString *result;
 	char *buf;
 	int n;
@@ -6486,6 +6509,8 @@ ves_icall_System_Environment_get_MachineName (void)
 	return mono_string_new (mono_domain_get (), "mono");
 #endif
 }
+
+#endif //defined (HOST_WIN32)
 
 ICALL_EXPORT int
 ves_icall_System_Environment_get_Platform (void)
@@ -6766,10 +6791,12 @@ ves_icall_System_Environment_GetGacPath (void)
 	return mono_string_new (mono_domain_get (), mono_assembly_getrootdir ());
 }
 
+#if defined (HOST_WIN32)
+
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 ICALL_EXPORT MonoString*
 ves_icall_System_Environment_GetWindowsFolderPath (int folder)
 {
-#if defined (HOST_WIN32)
 	#ifndef CSIDL_FLAG_CREATE
 		#define CSIDL_FLAG_CREATE	0x8000
 	#endif
@@ -6785,17 +6812,35 @@ ves_icall_System_Environment_GetWindowsFolderPath (int folder)
 		mono_error_set_pending_exception (&error);
 		return res;
 	}
-#else
-	g_warning ("ves_icall_System_Environment_GetWindowsFolderPath should only be called on Windows!");
-#endif
 	return mono_string_new (mono_domain_get (), "");
 }
 
+#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+
+ICALL_EXPORT MonoString*
+ves_icall_System_Environment_GetWindowsFolderPath (int folder)
+{
+	g_unsupported_api ("SHGetFolderPath");
+	return mono_string_new (mono_domain_get (), "");
+}
+#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+
+#else /* HOST_WIN32 */
+
+ICALL_EXPORT MonoString*
+ves_icall_System_Environment_GetWindowsFolderPath (int folder)
+{
+	g_warning ("ves_icall_System_Environment_GetWindowsFolderPath should only be called on Windows!");
+	return mono_string_new (mono_domain_get (), "");
+}
+#endif /* HOST_WIN32 */
+
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 ICALL_EXPORT MonoArray *
 ves_icall_System_Environment_GetLogicalDrives (void)
 {
 	MonoError error;
-        gunichar2 buf [256], *ptr, *dname;
+    gunichar2 buf [256], *ptr, *dname;
 	gunichar2 *u16;
 	guint initial_size = 127, size = 128;
 	gint ndrives;
@@ -6850,6 +6895,21 @@ leave:
 
 	return result;
 }
+
+#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+
+ICALL_EXPORT MonoArray *
+ves_icall_System_Environment_GetLogicalDrives (void)
+{
+	MonoError error;
+
+	g_unsupported_api ("GetLogicalDriveStrings");
+	SetLastError (ERROR_NOT_SUPPORTED);
+	mono_error_set_generic_error (&error, "System", "NotSupportedException", "");
+	mono_error_set_pending_exception (&error);
+	return NULL;
+}
+#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
 
 ICALL_EXPORT MonoString *
 ves_icall_System_IO_DriveInfo_GetDriveFormat (MonoString *path)
@@ -6911,7 +6971,7 @@ ves_icall_System_Text_EncodingHelper_InternalCodePage (gint32 *int_code_page)
 	*int_code_page = -1;
 
 	g_get_charset (&cset);
-	c = codepage = strdup (cset);
+	c = codepage = g_strdup (cset);
 	for (c = codepage; *c; c++){
 		if (isascii (*c) && isalpha (*c))
 			*c = tolower (*c);
@@ -6962,7 +7022,12 @@ ICALL_EXPORT void
 ves_icall_System_Environment_BroadcastSettingChange (void)
 {
 #ifdef HOST_WIN32
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 	SendMessageTimeout (HWND_BROADCAST, WM_SETTINGCHANGE, (WPARAM)NULL, (LPARAM)L"Environment", SMTO_ABORTIFHUNG, 2000, 0);
+#else
+	g_unsupported_api ("SendMessageTimeout");
+	SetLastError (ERROR_NOT_SUPPORTED);
+#endif
 #endif
 }
 
@@ -7155,9 +7220,14 @@ ves_icall_System_IO_DriveInfo_GetDiskFreeSpace (MonoString *path_name, guint64 *
 ICALL_EXPORT guint32
 ves_icall_System_IO_DriveInfo_GetDriveType (MonoString *root_path_name)
 {
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 	return GetDriveType (mono_string_chars (root_path_name));
-}
+#else
+	g_unsupported_api ("GetDriveType");
+	return DRIVE_UNKNOWN;
 #endif
+}
+#endif /* PLATFORM_NO_DRIVEINFO */
 
 ICALL_EXPORT gpointer
 ves_icall_RuntimeMethodHandle_GetFunctionPointer (MonoMethod *method)
@@ -8001,10 +8071,10 @@ ves_icall_Microsoft_Win32_NativeMethods_TerminateProcess (gpointer handle, gint3
 ICALL_EXPORT gint32
 ves_icall_Microsoft_Win32_NativeMethods_WaitForInputIdle (gpointer handle, gint32 milliseconds)
 {
-#ifdef HOST_WIN32
+#if defined(HOST_WIN32) && G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 	return WaitForInputIdle (handle, milliseconds);
 #else
-	/*TODO: Not implemented*/
+	g_unsupported_api ("WaitForInputIdle");
 	return WAIT_TIMEOUT;
 #endif
 }
@@ -8012,13 +8082,25 @@ ves_icall_Microsoft_Win32_NativeMethods_WaitForInputIdle (gpointer handle, gint3
 ICALL_EXPORT MonoBoolean
 ves_icall_Microsoft_Win32_NativeMethods_GetProcessWorkingSetSize (gpointer handle, gsize *min, gsize *max)
 {
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 	return GetProcessWorkingSetSize (handle, min, max);
+#else
+	g_unsupported_api ("GetProcessWorkingSetSize");
+	SetLastError (ERROR_NOT_SUPPORTED);
+	return FALSE;
+#endif
 }
 
 ICALL_EXPORT MonoBoolean
 ves_icall_Microsoft_Win32_NativeMethods_SetProcessWorkingSetSize (gpointer handle, gsize min, gsize max)
 {
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 	return SetProcessWorkingSetSize (handle, min, max);
+#else
+	g_unsupported_api ("SetProcessWorkingSetSize");
+	SetLastError (ERROR_NOT_SUPPORTED);
+	return FALSE;
+#endif
 }
 
 ICALL_EXPORT MonoBoolean
@@ -8036,13 +8118,25 @@ ves_icall_Microsoft_Win32_NativeMethods_GetCurrentProcessId (void)
 ICALL_EXPORT gint32
 ves_icall_Microsoft_Win32_NativeMethods_GetPriorityClass (gpointer handle)
 {
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 	return GetPriorityClass (handle);
+#else
+	g_unsupported_api ("GetPriorityClass");
+	SetLastError (ERROR_NOT_SUPPORTED);
+	return FALSE;
+#endif
 }
 
 ICALL_EXPORT MonoBoolean
 ves_icall_Microsoft_Win32_NativeMethods_SetPriorityClass (gpointer handle, gint32 priorityClass)
 {
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 	return SetPriorityClass (handle, priorityClass);
+#else
+	g_unsupported_api ("SetPriorityClass");
+	SetLastError (ERROR_NOT_SUPPORTED);
+	return FALSE;
+#endif
 }
 
 #ifndef DISABLE_ICALL_TABLES

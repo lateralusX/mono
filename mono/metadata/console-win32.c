@@ -10,6 +10,7 @@
 
 #include <config.h>
 #include <glib.h>
+#include <gapifamily.h>
 #include <stdio.h>
 #include <string.h>
 #include <fcntl.h>
@@ -41,13 +42,24 @@ mono_console_handle_async_ops (void)
 {
 }
 
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 MonoBoolean
 ves_icall_System_ConsoleDriver_Isatty (HANDLE handle)
 {
 	DWORD mode;
-
 	return GetConsoleMode (handle, &mode) != 0;
 }
+
+#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+
+MonoBoolean
+ves_icall_System_ConsoleDriver_Isatty (HANDLE handle)
+{
+	g_unsupported_api ("GetConsoleMode");
+	SetLastError (ERROR_NOT_SUPPORTED);
+	return FALSE;
+}
+#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
 
 MonoBoolean
 ves_icall_System_ConsoleDriver_SetEcho (MonoBoolean want_echo)

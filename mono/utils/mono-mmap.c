@@ -9,6 +9,7 @@
  */
 
 #include "config.h"
+#include <gapifamily.h>
 
 #ifdef HOST_WIN32
 #include <windows.h>
@@ -165,7 +166,7 @@ mono_vfree (void *addr, size_t length)
 	return 0;
 }
 
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP | WINAPI_PARTITION_APP)
 
 void*
 mono_file_map (size_t length, int flags, int fd, guint64 offset, void **ret_handle)
@@ -265,7 +266,7 @@ mono_file_unmap (void *addr, void *handle)
 void*
 mono_file_map (size_t length, int flags, int fd, guint64 offset, void **ret_handle)
 {
-	g_unsupported_windows_api ("CreateFileMapping,MapViewOfFile", WINAPI_FAMILY);
+	g_unsupported_api ("CreateFileMapping, MapViewOfFile");
 
 	*ret_handle = NULL;
 	return NULL;
@@ -274,7 +275,7 @@ mono_file_map (size_t length, int flags, int fd, guint64 offset, void **ret_hand
 int
 mono_file_unmap (void *addr, void *handle)
 {
-	g_unsupported_windows_api ("UnmapViewOfFile", WINAPI_FAMILY);
+	g_unsupported_api ("UnmapViewOfFile");
 	return 0;
 }
 

@@ -134,7 +134,7 @@ mono_dl_lookup_symbol_in_process (const char *symbol_name)
 void*
 mono_dl_lookup_symbol_in_process (const char *symbol_name)
 {
-	g_unsupported_windows_api ("EnumProcessModules", WINAPI_FAMILY);
+	g_unsupported_api ("EnumProcessModules");
 	return NULL;
 }
 

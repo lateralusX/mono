@@ -44,6 +44,10 @@
 #define XREFS old_xrefs
 #endif
 
+#ifdef TARGET_WIN32
+#include <posix-names-win32.h>
+#endif
+
 /*
  * Bridge data for a single managed object
  *

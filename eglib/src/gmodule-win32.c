@@ -122,7 +122,7 @@ w32_find_symbol (const gchar *symbol_name)
 static gpointer
 w32_find_symbol (const gchar *symbol_name)
 {
-	g_unsupported_windows_api ("EnumProcessModules", WINAPI_FAMILY);
+	g_unsupported_api ("EnumProcessModules");
 	return NULL;
 }
 

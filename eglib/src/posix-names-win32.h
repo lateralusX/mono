@@ -10,6 +10,7 @@
 	#include <stdio.h>
 	#include <io.h>
 	#include <direct.h>
+	#include <string.h>
 	
 	#if !WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
 		#undef read
@@ -35,6 +36,9 @@
 
 		#undef mktemp
 		#define mktemp _mktemp
+
+		#undef strdup
+		#define strdup _strdup
 	#endif // !WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
 
 #endif // _MCS_VER

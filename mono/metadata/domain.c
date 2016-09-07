@@ -13,6 +13,7 @@
 
 #include <config.h>
 #include <glib.h>
+#include <gapifamily.h>
 #include <string.h>
 #include <sys/stat.h>
 
@@ -519,7 +520,7 @@ mono_init_internal (const char *filename, const char *exe_filename, const char *
 	if (domain)
 		g_assert_not_reached ();
 
-#ifdef HOST_WIN32
+#if defined(HOST_WIN32) && G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 	/* Avoid system error message boxes. */
 	SetErrorMode (SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
 #endif

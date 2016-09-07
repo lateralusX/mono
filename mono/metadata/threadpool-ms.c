@@ -25,6 +25,7 @@
 #include <math.h>
 #include <config.h>
 #include <glib.h>
+#include <gapifamily.h>
 
 #include <mono/metadata/class-internals.h>
 #include <mono/metadata/exception.h>
@@ -1451,7 +1452,11 @@ mono_threadpool_ms_remove_domain_jobs (MonoDomain *domain, int timeout)
 	 * There might be some threads out that could be about to execute stuff from the given domain.
 	 * We avoid that by setting up a semaphore to be pulsed by the thread that reaches zero.
 	 */
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP)
 	sem = domain->cleanup_semaphore = CreateSemaphore (NULL, 0, 1, NULL);
+#else
+	sem = domain->cleanup_semaphore = CreateSemaphoreEx (NULL, 0, 1, NULL, 0, SEMAPHORE_ALL_ACCESS);
+#endif
 
 	/*
 	 * The memory barrier here is required to have global ordering between assigning to cleanup_semaphone

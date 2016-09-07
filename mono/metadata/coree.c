@@ -12,8 +12,9 @@
 
 #ifdef HOST_WIN32
 
-#include <string.h>
 #include <glib.h>
+#include <gapifamily.h>
+#include <string.h>
 #include <mono/io-layer/io-layer.h>
 #include <mono/utils/mono-path.h>
 #include "cil-coff.h"
@@ -29,7 +30,9 @@
 #include "environment.h"
 #include "coree.h"
 
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 #include <shellapi.h>
+#endif
 
 HMODULE coree_module_handle = NULL;
 
@@ -68,6 +71,7 @@ mono_get_module_file_name (HMODULE module_handle)
 }
 
 /* Entry point called by LdrLoadDll of ntdll.dll after _CorValidateImage. */
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 BOOL STDMETHODCALLTYPE _CorDllMain(HINSTANCE hInst, DWORD dwReason, LPVOID lpReserved)
 {
 	MonoAssembly* assembly;
@@ -135,7 +139,17 @@ BOOL STDMETHODCALLTYPE _CorDllMain(HINSTANCE hInst, DWORD dwReason, LPVOID lpRes
 	return TRUE;
 }
 
+#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+
+BOOL STDMETHODCALLTYPE _CorDllMain(HINSTANCE hInst, DWORD dwReason, LPVOID lpReserved)
+{
+	g_unsupported_api ("_CorDllMain");
+	return FALSE;
+}
+#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+
 /* Called by ntdll.dll reagardless of entry point after _CorValidateImage. */
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 __int32 STDMETHODCALLTYPE _CorExeMain(void)
 {
 	MonoError error;
@@ -208,6 +222,15 @@ __int32 STDMETHODCALLTYPE _CorExeMain(void)
 	ExitProcess (mono_environment_exitcode_get ());
 }
 
+#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+
+__int32 STDMETHODCALLTYPE _CorExeMain(void)
+{
+	g_unsupported_api ("_CorExeMain");
+	ExitProcess (EXIT_FAILURE);
+}
+#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+
 /* Called by msvcrt.dll when shutting down. */
 void STDMETHODCALLTYPE CorExitProcess(int exitCode)
 {
@@ -223,6 +246,7 @@ void STDMETHODCALLTYPE CorExitProcess(int exitCode)
 }
 
 /* Called by ntdll.dll before _CorDllMain and _CorExeMain. */
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 STDAPI _CorValidateImage(PVOID *ImageBase, LPCWSTR FileName)
 {
 	IMAGE_DOS_HEADER* DosHeader;
@@ -386,6 +410,15 @@ STDAPI _CorValidateImage(PVOID *ImageBase, LPCWSTR FileName)
 	return STATUS_SUCCESS;
 }
 
+#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+
+STDAPI _CorValidateImage(PVOID *ImageBase, LPCWSTR FileName)
+{
+	g_unsupported_api ("_CorValidateImage");
+	return E_UNEXPECTED;
+}
+#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+
 /* Called by ntdll.dll. */
 STDAPI_(VOID) _CorImageUnloading(PVOID ImageBase)
 {
@@ -406,6 +439,7 @@ STDAPI CorBindToRuntime(LPCWSTR pwszVersion, LPCWSTR pwszBuildFlavor, REFCLSID r
 	return CorBindToRuntimeEx (pwszVersion, pwszBuildFlavor, 0, rclsid, riid, ppv);
 }
 
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 HMODULE WINAPI MonoLoadImage(LPCWSTR FileName)
 {
 	HANDLE FileHandle;
@@ -482,6 +516,15 @@ CloseFile:
 	CloseHandle(FileHandle);
 	return NULL;
 }
+
+#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+
+HMODULE WINAPI MonoLoadImage(LPCWSTR FileName)
+{
+	g_unsupported_api ("MonoLoadImage");
+	return NULL;
+}
+#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
 
 typedef struct _EXPORT_FIXUP
 {
@@ -828,6 +871,7 @@ STDAPI MonoFixupExe(HMODULE ModuleHandle)
 	return S_OK;
 }
 
+#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 static void
 mono_set_act_ctx (const char* file_name)
 {
@@ -888,6 +932,17 @@ mono_set_act_ctx (const char* file_name)
 	if (handle != INVALID_HANDLE_VALUE)
 		ActivateActCtx_proc (handle, &cookie);
 }
+
+#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+
+static void
+mono_set_act_ctx (const char* file_name)
+{
+	g_unsupported_api ("CreateActCtx, ActivateActCtx");
+	SetLastError (ERROR_NOT_SUPPORTED);
+	return;
+}
+#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
 
 void
 mono_load_coree (const char* exe_file_name)
