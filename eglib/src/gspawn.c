@@ -60,7 +60,6 @@
 #ifdef G_OS_WIN32
 #include <io.h>
 #include <winsock2.h>
-#include <eglib-remap-posix-win32.h>
 /* windows pipe api details: http://msdn2.microsoft.com/en-us/library/edze9h7e(VS.80).aspx */
 #define pipe(x) _pipe(x, 256, 0)
 #endif

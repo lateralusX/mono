@@ -37,10 +37,6 @@
 
 static gpointer error_quark = "FileError";
 
-#ifdef G_OS_WIN32
-#include <eglib-remap-posix-win32.h>
-#endif
-
 gpointer
 g_file_error_quark (void)
 {

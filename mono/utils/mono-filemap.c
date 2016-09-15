@@ -23,10 +23,6 @@
 
 #include "mono-mmap.h"
 
-#ifdef HOST_WIN32
-#include <eglib-remap-posix-win32.h>
-#endif
-
 MonoFileMap *
 mono_file_map_open (const char* name)
 {

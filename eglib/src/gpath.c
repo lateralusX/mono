@@ -33,7 +33,6 @@
 
 #ifdef G_OS_WIN32
 #include <direct.h> 
-#include <eglib-remap-posix-win32.h>
 #endif
 
 #ifdef HAVE_UNISTD_H

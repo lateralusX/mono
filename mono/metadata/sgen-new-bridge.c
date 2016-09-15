@@ -44,10 +44,6 @@
 #define XREFS old_xrefs
 #endif
 
-#ifdef HOST_WIN32
-#include <eglib-remap-posix-win32.h>
-#endif
-
 /*
  * Bridge data for a single managed object
  *
