@@ -13,7 +13,6 @@
 
 #if defined(__WIN32__) || defined(_WIN32)
 /* Native win32 */
-#include <gapifamily.h>
 #define __USE_W32_SOCKETS
 #include <winsock2.h>
 #include <windows.h>

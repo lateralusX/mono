@@ -13,7 +13,6 @@
 
 #include <config.h>
 #include <glib.h>
-#include <gapifamily.h>
 #include <string.h>
 #include <sys/stat.h>
 

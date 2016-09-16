@@ -28,7 +28,6 @@
 
 #include <stdlib.h>
 #include <glib.h>
-#include <gapifamily.h>
 
 #include <windows.h>
 #include <direct.h>

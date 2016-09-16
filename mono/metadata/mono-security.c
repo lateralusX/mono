@@ -12,7 +12,6 @@
 #include <config.h>
 #endif
 
-#include <gapifamily.h>
 #include <mono/metadata/assembly.h>
 #include <mono/metadata/appdomain.h>
 #include <mono/metadata/image.h>

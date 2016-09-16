@@ -22,7 +22,6 @@
 #endif
 
 #include <glib.h>
-#include <gapifamily.h>
 #include <string.h>
 #include <stdlib.h>
 #ifdef HOST_WIN32

@@ -5,7 +5,6 @@
  */
 
 #include "config.h"
-#include <gapifamily.h>
 #include "utils/mono-proclib.h"
 #include "utils/mono-time.h"
 

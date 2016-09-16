@@ -36,7 +36,6 @@
 #include <config.h>
 #include <stdio.h>
 #include <glib.h>
-#include <gapifamily.h>
 #include <unicode-data.h>
 #include <errno.h>
 

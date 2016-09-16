@@ -12,7 +12,6 @@
 
 #if defined(HOST_WIN32)
 
-#include <gapifamily.h>
 #include "mono/utils/mono-dl.h"
 #include "mono/utils/mono-embed.h"
 #include "mono/utils/mono-path.h"

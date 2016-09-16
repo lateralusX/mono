@@ -16,7 +16,6 @@
 
 #include <glib.h>
 #include <config.h>
-#include <gapifamily.h>
 
 #include "atomic.h"
 #include "mono-error.h"

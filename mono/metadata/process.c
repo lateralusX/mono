@@ -12,7 +12,6 @@
 #include <config.h>
 
 #include <glib.h>
-#include <gapifamily.h>
 #include <string.h>
 
 #include <mono/metadata/object-internals.h>

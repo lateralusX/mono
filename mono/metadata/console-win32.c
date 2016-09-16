@@ -10,7 +10,6 @@
 
 #include <config.h>
 #include <glib.h>
-#include <gapifamily.h>
 #include <stdio.h>
 #include <string.h>
 #include <fcntl.h>

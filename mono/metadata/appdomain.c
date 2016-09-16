@@ -14,7 +14,6 @@
 #undef ASSEMBLY_LOAD_DEBUG
 #include <config.h>
 #include <glib.h>
-#include <gapifamily.h>
 #include <string.h>
 #include <errno.h>
 #include <time.h>

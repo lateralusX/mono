@@ -9,7 +9,6 @@
  */
 
 #include "config.h"
-#include <gapifamily.h>
 
 #ifdef HOST_WIN32
 #include <windows.h>

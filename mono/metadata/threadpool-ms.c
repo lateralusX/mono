@@ -25,7 +25,6 @@
 #include <math.h>
 #include <config.h>
 #include <glib.h>
-#include <gapifamily.h>
 
 #include <mono/metadata/class-internals.h>
 #include <mono/metadata/exception.h>

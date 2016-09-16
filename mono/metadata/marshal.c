@@ -16,7 +16,6 @@
 #include <alloca.h>
 #endif
 
-#include <gapifamily.h>
 #include "object.h"
 #include "loader.h"
 #include "cil-coff.h"

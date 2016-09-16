@@ -16,7 +16,6 @@
 
 #include <config.h>
 #include <glib.h>
-#include <gapifamily.h>
 #include <stdarg.h>
 #include <string.h>
 #include <ctype.h>
@@ -96,7 +95,6 @@
 #include <mono/utils/bsearch.h>
 #include <mono/utils/mono-os-mutex.h>
 #include <mono/utils/mono-threads.h>
-#include <gapifamily.h>
 
 #if defined (HOST_WIN32)
 #include <windows.h>

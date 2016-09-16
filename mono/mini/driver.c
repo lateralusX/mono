@@ -11,7 +11,6 @@
  */
 
 #include <config.h>
-#include <gapifamily.h>
 #ifdef HAVE_SIGNAL_H
 #include <signal.h>
 #endif

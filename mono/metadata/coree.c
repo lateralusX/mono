@@ -13,7 +13,6 @@
 #ifdef HOST_WIN32
 
 #include <glib.h>
-#include <gapifamily.h>
 #include <string.h>
 #include <mono/io-layer/io-layer.h>
 #include <mono/utils/mono-path.h>
