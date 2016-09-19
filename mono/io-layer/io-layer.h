@@ -11,6 +11,8 @@
 #ifndef _MONO_IOLAYER_IOLAYER_H_
 #define _MONO_IOLAYER_IOLAYER_H_
 
+#include <glib.h>
+
 #if defined(__WIN32__) || defined(_WIN32)
 /* Native win32 */
 #define __USE_W32_SOCKETS
