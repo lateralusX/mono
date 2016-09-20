@@ -103,11 +103,11 @@ gchar*
 g_win32_getlocale(void)
 {
 	gunichar2 buf[19];
-	gint ccBuf = GetLocaleInfoEx (LOCALE_NAME_USER_DEFAULT, LOCALE_SISO639LANGNAME2, buf, 9);
+	gint ccBuf = GetLocaleInfoEx (LOCALE_NAME_USER_DEFAULT, LOCALE_SISO639LANGNAME, buf, 9);
 	assert (ccBuf <= 9);
 	if (ccBuf != 0) {
-		buf[ccBuf] = L'-';
-		ccBuf = GetLocaleInfoEx (LOCALE_NAME_USER_DEFAULT, LOCALE_SISO3166CTRYNAME2, buf + ccBuf, 9);
+		buf[ccBuf - 1] = L'-';
+		ccBuf = GetLocaleInfoEx (LOCALE_NAME_USER_DEFAULT, LOCALE_SISO3166CTRYNAME, buf + ccBuf, 9);
 		assert (ccBuf <= 9);
 	}
 

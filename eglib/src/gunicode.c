@@ -214,7 +214,9 @@ g_get_charset (G_CONST_RETURN char **charset)
 #if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
 		sprintf (buf, "CP%u", GetACP ());
 #else
-		sprintf (buf, "CP%u", CP_ACP);
+		CPINFOEX cp_info;
+		GetCPInfoEx (CP_ACP, 0, &cp_info);
+		sprintf (buf, "CP%u", cp_info.CodePage);
 #endif
 		my_charset = buf;
 		is_utf8 = FALSE;
