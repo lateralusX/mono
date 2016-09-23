@@ -41,7 +41,7 @@ mono_console_handle_async_ops (void)
 {
 }
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 MonoBoolean
 ves_icall_System_ConsoleDriver_Isatty (HANDLE handle)
 {
@@ -49,7 +49,7 @@ ves_icall_System_ConsoleDriver_Isatty (HANDLE handle)
 	return GetConsoleMode (handle, &mode) != 0;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 MonoBoolean
 ves_icall_System_ConsoleDriver_Isatty (HANDLE handle)
@@ -61,7 +61,7 @@ ves_icall_System_ConsoleDriver_Isatty (HANDLE handle)
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return FALSE;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 MonoBoolean
 ves_icall_System_ConsoleDriver_SetEcho (MonoBoolean want_echo)

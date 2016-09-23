@@ -1348,7 +1348,7 @@ ves_icall_System_Net_Sockets_Socket_Connect_internal (SOCKET sock, MonoObject *s
 	g_free (sa);
 }
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT)
 /* These #defines from mswsock.h from wine.  Defining them here allows
  * us to build this file on a mingw box that doesn't know the magic
  * numbers, but still run on a newer windows box that does.
@@ -1440,7 +1440,7 @@ ves_icall_System_Net_Sockets_Socket_Disconnect_internal (SOCKET sock, MonoBoolea
 		*werror = WSAEINTR;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT) */
 
 void
 ves_icall_System_Net_Sockets_Socket_Disconnect_internal (SOCKET sock, MonoBoolean reuse, gint32 *werror)
@@ -1455,7 +1455,7 @@ ves_icall_System_Net_Sockets_Socket_Disconnect_internal (SOCKET sock, MonoBoolea
 		SetLastError (*werror);
 	}
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT) */
 
 gint32
 ves_icall_System_Net_Sockets_Socket_Receive_internal (SOCKET sock, MonoArray *buffer, gint32 offset, gint32 count, gint32 flags, gint32 *werror)
@@ -2798,7 +2798,7 @@ ves_icall_System_Net_Dns_GetHostName_internal (MonoString **h_name)
 	return TRUE;
 }
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT)
 gboolean
 ves_icall_System_Net_Sockets_Socket_SendFile_internal (SOCKET sock, MonoString *filename, MonoArray *pre_buffer, MonoArray *post_buffer, gint flags)
 {
@@ -2859,7 +2859,7 @@ ves_icall_System_Net_Sockets_Socket_SendFile_internal (SOCKET sock, MonoString *
 	return ret;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT) */
 
 gboolean
 ves_icall_System_Net_Sockets_Socket_SendFile_internal (SOCKET sock, MonoString *filename, MonoArray *pre_buffer, MonoArray *post_buffer, gint flags)
@@ -2871,7 +2871,7 @@ ves_icall_System_Net_Sockets_Socket_SendFile_internal (SOCKET sock, MonoString *
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return FALSE;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT) */
 
 gboolean
 ves_icall_System_Net_Sockets_Socket_SupportPortReuse (MonoProtocolType proto)

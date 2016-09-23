@@ -98,7 +98,7 @@
 
 #if defined (HOST_WIN32)
 #include <windows.h>
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 #include <shlobj.h>
 #endif
 #endif
@@ -6446,7 +6446,7 @@ ves_icall_System_Environment_get_UserName (void)
 
 #if defined (HOST_WIN32)
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 ICALL_EXPORT MonoString *
 ves_icall_System_Environment_get_MachineName (void)
 {
@@ -6468,7 +6468,7 @@ ves_icall_System_Environment_get_MachineName (void)
 	return result;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 ICALL_EXPORT MonoString *
 ves_icall_System_Environment_get_MachineName (void)
@@ -6476,7 +6476,7 @@ ves_icall_System_Environment_get_MachineName (void)
 	g_unsupported_api ("GetComputerName");
 	return mono_string_new (mono_domain_get (), "mono");
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 #else /* HOST_WIN32 */
 
@@ -6791,7 +6791,7 @@ ves_icall_System_Environment_GetGacPath (void)
 
 #if defined (HOST_WIN32)
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 ICALL_EXPORT MonoString*
 ves_icall_System_Environment_GetWindowsFolderPath (int folder)
 {
@@ -6813,7 +6813,7 @@ ves_icall_System_Environment_GetWindowsFolderPath (int folder)
 	return mono_string_new (mono_domain_get (), "");
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 ICALL_EXPORT MonoString*
 ves_icall_System_Environment_GetWindowsFolderPath (int folder)
@@ -6821,7 +6821,7 @@ ves_icall_System_Environment_GetWindowsFolderPath (int folder)
 	g_unsupported_api ("SHGetFolderPath");
 	return mono_string_new (mono_domain_get (), "");
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 #else /* HOST_WIN32 */
 
@@ -6833,7 +6833,7 @@ ves_icall_System_Environment_GetWindowsFolderPath (int folder)
 }
 #endif /* HOST_WIN32 */
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 ICALL_EXPORT MonoArray *
 ves_icall_System_Environment_GetLogicalDrives (void)
 {
@@ -6894,7 +6894,7 @@ leave:
 	return result;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 ICALL_EXPORT MonoArray *
 ves_icall_System_Environment_GetLogicalDrives (void)
@@ -6906,7 +6906,7 @@ ves_icall_System_Environment_GetLogicalDrives (void)
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return NULL;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 ICALL_EXPORT MonoString *
 ves_icall_System_IO_DriveInfo_GetDriveFormat (MonoString *path)
@@ -7019,7 +7019,7 @@ ICALL_EXPORT void
 ves_icall_System_Environment_BroadcastSettingChange (void)
 {
 #ifdef HOST_WIN32
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 	SendMessageTimeout (HWND_BROADCAST, WM_SETTINGCHANGE, (WPARAM)NULL, (LPARAM)L"Environment", SMTO_ABORTIFHUNG, 2000, 0);
 #else
 	MonoError error;
@@ -7220,7 +7220,7 @@ ves_icall_System_IO_DriveInfo_GetDiskFreeSpace (MonoString *path_name, guint64 *
 ICALL_EXPORT guint32
 ves_icall_System_IO_DriveInfo_GetDriveType (MonoString *root_path_name)
 {
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 	return GetDriveType (mono_string_chars (root_path_name));
 #else
 	MonoError error;
@@ -8074,7 +8074,7 @@ ves_icall_Microsoft_Win32_NativeMethods_TerminateProcess (gpointer handle, gint3
 ICALL_EXPORT gint32
 ves_icall_Microsoft_Win32_NativeMethods_WaitForInputIdle (gpointer handle, gint32 milliseconds)
 {
-#if defined(HOST_WIN32) && G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if defined(HOST_WIN32) && G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 	return WaitForInputIdle (handle, milliseconds);
 #else
 	MonoError error;
@@ -8088,7 +8088,7 @@ ves_icall_Microsoft_Win32_NativeMethods_WaitForInputIdle (gpointer handle, gint3
 ICALL_EXPORT MonoBoolean
 ves_icall_Microsoft_Win32_NativeMethods_GetProcessWorkingSetSize (gpointer handle, gsize *min, gsize *max)
 {
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 	return GetProcessWorkingSetSize (handle, min, max);
 #else
 	MonoError error;
@@ -8103,7 +8103,7 @@ ves_icall_Microsoft_Win32_NativeMethods_GetProcessWorkingSetSize (gpointer handl
 ICALL_EXPORT MonoBoolean
 ves_icall_Microsoft_Win32_NativeMethods_SetProcessWorkingSetSize (gpointer handle, gsize min, gsize max)
 {
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 	return SetProcessWorkingSetSize (handle, min, max);
 #else
 	MonoError error;
@@ -8130,7 +8130,7 @@ ves_icall_Microsoft_Win32_NativeMethods_GetCurrentProcessId (void)
 ICALL_EXPORT gint32
 ves_icall_Microsoft_Win32_NativeMethods_GetPriorityClass (gpointer handle)
 {
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 	return GetPriorityClass (handle);
 #else
 	MonoError error;
@@ -8145,7 +8145,7 @@ ves_icall_Microsoft_Win32_NativeMethods_GetPriorityClass (gpointer handle)
 ICALL_EXPORT MonoBoolean
 ves_icall_Microsoft_Win32_NativeMethods_SetPriorityClass (gpointer handle, gint32 priorityClass)
 {
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 	return SetPriorityClass (handle, priorityClass);
 #else
 	MonoError error;

@@ -1451,7 +1451,7 @@ mono_threadpool_ms_remove_domain_jobs (MonoDomain *domain, int timeout)
 	 * There might be some threads out that could be about to execute stuff from the given domain.
 	 * We avoid that by setting up a semaphore to be pulsed by the thread that reaches zero.
 	 */
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT)
 	sem = domain->cleanup_semaphore = CreateSemaphore (NULL, 0, 1, NULL);
 #else
 	sem = domain->cleanup_semaphore = CreateSemaphoreEx (NULL, 0, 1, NULL, 0, SEMAPHORE_ALL_ACCESS);

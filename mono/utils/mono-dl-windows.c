@@ -49,7 +49,7 @@ mono_dl_open_file (const char *file, int flags)
 	if (file) {
 		gunichar2* file_utf16 = g_utf8_to_utf16 (file, strlen (file), NULL, NULL, NULL);
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 		guint last_sem = SetErrorMode (SEM_FAILCRITICALERRORS);
 #endif
 		guint32 last_error = 0;
@@ -58,7 +58,7 @@ mono_dl_open_file (const char *file, int flags)
 		if (!hModule)
 			last_error = GetLastError ();
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 		SetErrorMode (last_sem);
 #endif
 
@@ -79,7 +79,7 @@ mono_dl_close_handle (MonoDl *module)
 		FreeLibrary (module->handle);
 }
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 void*
 mono_dl_lookup_symbol_in_process (const char *symbol_name)
 {
@@ -128,7 +128,7 @@ mono_dl_lookup_symbol_in_process (const char *symbol_name)
 	return NULL;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 void*
 mono_dl_lookup_symbol_in_process (const char *symbol_name)
@@ -137,7 +137,7 @@ mono_dl_lookup_symbol_in_process (const char *symbol_name)
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return NULL;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 void*
 mono_dl_lookup_symbol (MonoDl *module, const char *symbol_name)
@@ -163,7 +163,7 @@ mono_dl_convert_flags (int flags)
 	return 0;
 }
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 
 char*
 mono_dl_current_error_string (void)
@@ -183,7 +183,7 @@ mono_dl_current_error_string (void)
 	return ret;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 char*
 mono_dl_current_error_string (void)
@@ -199,7 +199,7 @@ mono_dl_current_error_string (void)
 	ret = u16to8 (buf);
 	return ret;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 int
 mono_dl_get_executable_path (char *buf, int buflen)

@@ -68,7 +68,7 @@ g_module_open (const gchar *file, GModuleFlags flags)
 	return module;
 }
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 static gpointer
 w32_find_symbol (const gchar *symbol_name)
 {
@@ -116,7 +116,7 @@ w32_find_symbol (const gchar *symbol_name)
 	return NULL;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 static gpointer
 w32_find_symbol (const gchar *symbol_name)
@@ -125,7 +125,7 @@ w32_find_symbol (const gchar *symbol_name)
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return NULL;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 gboolean
 g_module_symbol (GModule *module, const gchar *symbol_name, gpointer *symbol)
@@ -146,7 +146,7 @@ g_module_symbol (GModule *module, const gchar *symbol_name, gpointer *symbol)
 	}
 }
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 const gchar *
 g_module_error (void)
 {
@@ -164,7 +164,7 @@ g_module_error (void)
 	return ret;
 }
 
-#else /* #if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 const gchar *
 g_module_error (void)
@@ -180,7 +180,7 @@ g_module_error (void)
 	ret = u16to8 (buf);
 	return ret;
 }
-#endif /* #if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 gboolean
 g_module_close (GModule *module)

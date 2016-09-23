@@ -165,7 +165,7 @@ mono_vfree (void *addr, size_t length)
 	return 0;
 }
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 
 void*
 mono_file_map (size_t length, int flags, int fd, guint64 offset, void **ret_handle)
@@ -211,7 +211,7 @@ mono_file_unmap (void *addr, void *handle)
 	return 0;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 #define MONO_EMULATE_WIN32_FILE_MAPPING_API
 #ifdef MONO_EMULATE_WIN32_FILE_MAPPING_API
@@ -278,7 +278,7 @@ mono_file_unmap (void *addr, void *handle)
 	return 0;
 }
 #endif /* MONO_EMULATE_WIN32_FILE_MAPPING_API */
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 int
 mono_mprotect (void *addr, size_t length, int flags)

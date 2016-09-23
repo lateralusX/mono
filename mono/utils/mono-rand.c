@@ -42,7 +42,7 @@ mono_rand_open (void)
 	return FALSE;
 }
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 
 #include <wincrypt.h>
 
@@ -95,7 +95,7 @@ mono_rand_seed (MONO_WIN32_CRYPT_PROVIDER_HANDLE provider, guchar *seed, size_t 
 	return CryptGenRandom (provider, (DWORD) seed_size, seed);
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 #include <bcrypt.h>
 
@@ -132,7 +132,7 @@ mono_rand_close_provider (MONO_WIN32_CRYPT_PROVIDER_HANDLE provider)
 	g_assert (provider != 0);
 	BCryptCloseAlgorithmProvider (provider, 0);
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 /**
  * mono_rand_init:

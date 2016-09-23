@@ -937,7 +937,7 @@ mono_cpu_usage (MonoCpuUsageState *prev)
 	guint64 kernel_time;
 	guint64 user_time;
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 	if (!GetSystemTimes ((FILETIME*) &idle_time, (FILETIME*) &kernel_time, (FILETIME*) &user_time)) {
 		g_error ("GetSystemTimes() failed, error code is %d\n", GetLastError ());
 		return -1;

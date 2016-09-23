@@ -85,7 +85,7 @@ g_unsetenv(const gchar *variable)
 	g_free(var);
 }
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 gchar*
 g_win32_getlocale(void)
 {
@@ -97,7 +97,7 @@ g_win32_getlocale(void)
 	return g_strdup (buf);
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 gchar*
 g_win32_getlocale(void)
@@ -117,7 +117,7 @@ g_win32_getlocale(void)
 	
 	return u16to8 (buf);
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 gboolean
 g_path_is_absolute (const char *filename)

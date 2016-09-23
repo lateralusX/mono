@@ -29,7 +29,7 @@
 #include "environment.h"
 #include "coree.h"
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 #include <shellapi.h>
 #endif
 
@@ -70,7 +70,7 @@ mono_get_module_file_name (HMODULE module_handle)
 }
 
 /* Entry point called by LdrLoadDll of ntdll.dll after _CorValidateImage. */
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 BOOL STDMETHODCALLTYPE _CorDllMain(HINSTANCE hInst, DWORD dwReason, LPVOID lpReserved)
 {
 	MonoAssembly* assembly;
@@ -138,17 +138,17 @@ BOOL STDMETHODCALLTYPE _CorDllMain(HINSTANCE hInst, DWORD dwReason, LPVOID lpRes
 	return TRUE;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 BOOL STDMETHODCALLTYPE _CorDllMain(HINSTANCE hInst, DWORD dwReason, LPVOID lpReserved)
 {
 	g_unsupported_api ("_CorDllMain");
 	return FALSE;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 /* Called by ntdll.dll reagardless of entry point after _CorValidateImage. */
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 __int32 STDMETHODCALLTYPE _CorExeMain(void)
 {
 	MonoError error;
@@ -221,14 +221,14 @@ __int32 STDMETHODCALLTYPE _CorExeMain(void)
 	ExitProcess (mono_environment_exitcode_get ());
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 __int32 STDMETHODCALLTYPE _CorExeMain(void)
 {
 	g_unsupported_api ("_CorExeMain");
 	ExitProcess (EXIT_FAILURE);
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 /* Called by msvcrt.dll when shutting down. */
 void STDMETHODCALLTYPE CorExitProcess(int exitCode)
@@ -245,7 +245,7 @@ void STDMETHODCALLTYPE CorExitProcess(int exitCode)
 }
 
 /* Called by ntdll.dll before _CorDllMain and _CorExeMain. */
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 STDAPI _CorValidateImage(PVOID *ImageBase, LPCWSTR FileName)
 {
 	IMAGE_DOS_HEADER* DosHeader;
@@ -409,14 +409,14 @@ STDAPI _CorValidateImage(PVOID *ImageBase, LPCWSTR FileName)
 	return STATUS_SUCCESS;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 STDAPI _CorValidateImage(PVOID *ImageBase, LPCWSTR FileName)
 {
 	g_unsupported_api ("_CorValidateImage");
 	return E_UNEXPECTED;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 /* Called by ntdll.dll. */
 STDAPI_(VOID) _CorImageUnloading(PVOID ImageBase)
@@ -438,7 +438,7 @@ STDAPI CorBindToRuntime(LPCWSTR pwszVersion, LPCWSTR pwszBuildFlavor, REFCLSID r
 	return CorBindToRuntimeEx (pwszVersion, pwszBuildFlavor, 0, rclsid, riid, ppv);
 }
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 HMODULE WINAPI MonoLoadImage(LPCWSTR FileName)
 {
 	HANDLE FileHandle;
@@ -516,14 +516,14 @@ CloseFile:
 	return NULL;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 HMODULE WINAPI MonoLoadImage(LPCWSTR FileName)
 {
 	g_unsupported_api ("MonoLoadImage");
 	return NULL;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 typedef struct _EXPORT_FIXUP
 {
@@ -837,7 +837,15 @@ STDAPI MonoFixupExe(HMODULE ModuleHandle)
 			ImportDesc = (IMAGE_IMPORT_DESCRIPTOR*)((DWORD_PTR)DosHeader + ImportDir->VirtualAddress);
 			while (ImportDesc->Name && ImportDesc->OriginalFirstThunk)
 			{
-				ImportModuleHandle = LoadLibraryA((PCSTR)((DWORD_PTR)DosHeader + ImportDesc->Name));
+				gchar * file_utf8 = (gchar *)((DWORD_PTR)DosHeader + ImportDesc->Name);
+
+				gunichar2* file_utf16 = g_utf8_to_utf16 (file_utf8, (glong)strlen (file_utf8), NULL, NULL, NULL);
+				ImportModuleHandle = NULL;
+				if (file_utf16 != NULL) {
+					ImportModuleHandle = LoadLibraryW(file_utf16);
+					g_free (file_utf16);
+				}
+
 				if (ImportModuleHandle == NULL)
 					return E_FAIL;
 
@@ -870,7 +878,7 @@ STDAPI MonoFixupExe(HMODULE ModuleHandle)
 	return S_OK;
 }
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 static void
 mono_set_act_ctx (const char* file_name)
 {
@@ -932,7 +940,7 @@ mono_set_act_ctx (const char* file_name)
 		ActivateActCtx_proc (handle, &cookie);
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 static void
 mono_set_act_ctx (const char* file_name)
@@ -941,7 +949,7 @@ mono_set_act_ctx (const char* file_name)
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 void
 mono_load_coree (const char* exe_file_name)

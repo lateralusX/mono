@@ -51,7 +51,7 @@
 
 #include "jit-icalls.h"
 
-#if defined(HOST_WIN32) && G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if defined(HOST_WIN32) && G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 #include <mmsystem.h>
 #endif
 
@@ -106,7 +106,7 @@ thread_timer_expired (HANDLE thread)
 	}
 }
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 static MMRESULT	g_timer_event = 0;
 static HANDLE g_timer_main_thread = INVALID_HANDLE_VALUE;
 
@@ -154,7 +154,7 @@ start_profiler_timer_event (void)
 	}
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 static PTP_TIMER g_timer_event = NULL;
 static HANDLE g_timer_main_thread = INVALID_HANDLE_VALUE;
@@ -226,7 +226,7 @@ start_profiler_timer_event (void)
 
 	return;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 void
 mono_runtime_setup_stat_profiler (void)

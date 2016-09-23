@@ -24,7 +24,7 @@
 
 #ifdef HOST_WIN32
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 #include <aclapi.h>
 #include <accctrl.h>
 #endif
@@ -74,7 +74,7 @@
 /* ask a server to translate a SID into a textual representation */
 #ifdef HOST_WIN32
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 static gunichar2*
 GetSidName (gunichar2 *server, PSID sid, gint32 *size)
 {
@@ -120,7 +120,7 @@ GetSidName (gunichar2 *server, PSID sid, gint32 *size)
 	return uniname;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 static gunichar2*
 GetSidName (gunichar2 *server, PSID sid, gint32 *size)
@@ -132,7 +132,7 @@ GetSidName (gunichar2 *server, PSID sid, gint32 *size)
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return NULL;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 #else /* HOST_WIN32 */
 
@@ -279,7 +279,7 @@ IsMemberOf (gid_t user, struct group *g)
 
 #ifdef HOST_WIN32
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 gpointer
 ves_icall_System_Security_Principal_WindowsIdentity_GetCurrentToken (void)
 {
@@ -298,7 +298,7 @@ ves_icall_System_Security_Principal_WindowsIdentity_GetCurrentToken (void)
 	return token;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 gpointer
 ves_icall_System_Security_Principal_WindowsIdentity_GetCurrentToken (void)
@@ -310,7 +310,7 @@ ves_icall_System_Security_Principal_WindowsIdentity_GetCurrentToken (void)
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return NULL;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 #else /* HOST_WIN32 */
 
@@ -323,7 +323,7 @@ ves_icall_System_Security_Principal_WindowsIdentity_GetCurrentToken (void)
 
 #ifdef HOST_WIN32
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 static gint32
 internal_get_token_name (gpointer token, gunichar2 ** uniname)
 {
@@ -341,7 +341,7 @@ internal_get_token_name (gpointer token, gunichar2 ** uniname)
 	return size;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 static gint32
 internal_get_token_name (gpointer token, gunichar2 ** uniname)
@@ -353,7 +353,7 @@ internal_get_token_name (gpointer token, gunichar2 ** uniname)
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return 0;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 #else /* HOST_WIN32 */
 
@@ -460,7 +460,7 @@ ves_icall_System_Security_Principal_WindowsIdentity_GetUserToken (MonoString *us
 
 #ifdef HOST_WIN32
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 MonoArray*
 ves_icall_System_Security_Principal_WindowsIdentity_GetRoles (gpointer token)
 {
@@ -511,7 +511,7 @@ ves_icall_System_Security_Principal_WindowsIdentity_GetRoles (gpointer token)
 	return array;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 MonoArray*
 ves_icall_System_Security_Principal_WindowsIdentity_GetRoles (gpointer token)
@@ -523,7 +523,7 @@ ves_icall_System_Security_Principal_WindowsIdentity_GetRoles (gpointer token)
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return NULL;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 #else /* HOST_WIN32 */
 
@@ -552,7 +552,7 @@ ves_icall_System_Security_Principal_WindowsImpersonationContext_CloseToken (gpoi
 
 #ifdef HOST_WIN32
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 gpointer
 ves_icall_System_Security_Principal_WindowsImpersonationContext_DuplicateToken (gpointer token)
 {
@@ -563,7 +563,7 @@ ves_icall_System_Security_Principal_WindowsImpersonationContext_DuplicateToken (
 	}
 	return dupe;
 }
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 gpointer
 ves_icall_System_Security_Principal_WindowsImpersonationContext_DuplicateToken (gpointer token)
@@ -575,7 +575,7 @@ ves_icall_System_Security_Principal_WindowsImpersonationContext_DuplicateToken (
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return NULL;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 #else /* HOST_WIN32 */
 
@@ -586,7 +586,7 @@ ves_icall_System_Security_Principal_WindowsImpersonationContext_DuplicateToken (
 }
 #endif /* HOST_WIN32 */
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 gboolean
 ves_icall_System_Security_Principal_WindowsImpersonationContext_SetCurrentToken (gpointer token)
 {
@@ -594,7 +594,7 @@ ves_icall_System_Security_Principal_WindowsImpersonationContext_SetCurrentToken 
 	return (ImpersonateLoggedOnUser (token) != 0);
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 gboolean
 ves_icall_System_Security_Principal_WindowsImpersonationContext_SetCurrentToken (gpointer token)
@@ -606,9 +606,9 @@ ves_icall_System_Security_Principal_WindowsImpersonationContext_SetCurrentToken 
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return FALSE;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 gboolean
 ves_icall_System_Security_Principal_WindowsImpersonationContext_RevertToSelf (void)
 {
@@ -616,7 +616,7 @@ ves_icall_System_Security_Principal_WindowsImpersonationContext_RevertToSelf (vo
 	return (RevertToSelf () != 0);
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 gboolean
 ves_icall_System_Security_Principal_WindowsImpersonationContext_RevertToSelf (void)
@@ -628,7 +628,7 @@ ves_icall_System_Security_Principal_WindowsImpersonationContext_RevertToSelf (vo
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return FALSE;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 /* System.Security.Principal.WindowsPrincipal */
 
@@ -732,7 +732,7 @@ ves_icall_System_Security_Principal_WindowsPrincipal_IsMemberOfGroupName (gpoint
 
 #ifdef HOST_WIN32
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 static PSID
 GetAdministratorsSid (void)
 {
@@ -745,7 +745,7 @@ GetAdministratorsSid (void)
 	return pSid;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 static PSID
 GetAdministratorsSid (void)
@@ -754,9 +754,9 @@ GetAdministratorsSid (void)
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return NULL;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 static PSID
 GetEveryoneSid (void)
 {
@@ -768,7 +768,7 @@ GetEveryoneSid (void)
 	return pSid;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 static PSID
 GetEveryoneSid (void)
@@ -777,9 +777,9 @@ GetEveryoneSid (void)
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return NULL;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 static PSID
 GetCurrentUserSid (void)
 {
@@ -804,7 +804,7 @@ GetCurrentUserSid (void)
 	return sid;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 static PSID
 GetCurrentUserSid (void)
@@ -813,9 +813,9 @@ GetCurrentUserSid (void)
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return NULL;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 static ACCESS_MASK
 GetRightsFromSid (PSID sid, PACL acl) 
 {
@@ -829,7 +829,7 @@ GetRightsFromSid (PSID sid, PACL acl)
 	return rights;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 static ACCESS_MASK
 GetRightsFromSid (PSID sid, PACL acl)
@@ -839,9 +839,9 @@ GetRightsFromSid (PSID sid, PACL acl)
 	return 0;
 }
 
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 static gboolean
 IsMachineProtected (gunichar2 *path)
 {
@@ -872,7 +872,7 @@ IsMachineProtected (gunichar2 *path)
 	return success;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 static gboolean
 IsMachineProtected (gunichar2 *path)
@@ -881,9 +881,9 @@ IsMachineProtected (gunichar2 *path)
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return FALSE;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 static gboolean
 IsUserProtected (gunichar2 *path)
 {
@@ -916,7 +916,7 @@ IsUserProtected (gunichar2 *path)
 	return success;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 static gboolean
 IsUserProtected (gunichar2 *path)
@@ -925,9 +925,9 @@ IsUserProtected (gunichar2 *path)
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return FALSE;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 static gboolean
 ProtectMachine (gunichar2 *path)
 {
@@ -975,7 +975,7 @@ ProtectMachine (gunichar2 *path)
 	return (retval == ERROR_SUCCESS);
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 static gboolean
 ProtectMachine (gunichar2 *path)
@@ -984,9 +984,9 @@ ProtectMachine (gunichar2 *path)
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return FALSE;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 static gboolean 
 ProtectUser (gunichar2 *path)
 {
@@ -1023,7 +1023,7 @@ ProtectUser (gunichar2 *path)
 	return (retval == ERROR_SUCCESS);
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 static gboolean
 ProtectUser (gunichar2 *path)
@@ -1032,7 +1032,7 @@ ProtectUser (gunichar2 *path)
 	SetLastError (ERROR_NOT_SUPPORTED);
 	return FALSE;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 #else /* HOST_WIN32 */
 

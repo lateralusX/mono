@@ -1829,7 +1829,7 @@ HANDLE ves_icall_System_Threading_Mutex_OpenMutex_internal (MonoString *name,
 	return(ret);
 }
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT)
 HANDLE ves_icall_System_Threading_Semaphore_CreateSemaphore_internal (gint32 initialCount, gint32 maximumCount, MonoString *name, gint32 *error)
 {
 	HANDLE sem;
@@ -1845,7 +1845,7 @@ HANDLE ves_icall_System_Threading_Semaphore_CreateSemaphore_internal (gint32 ini
 	return(sem);
 }                                                                   
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT) */
 
 HANDLE ves_icall_System_Threading_Semaphore_CreateSemaphore_internal (gint32 initialCount, gint32 maximumCount, MonoString *name, gint32 *error)
 {
@@ -1861,7 +1861,7 @@ HANDLE ves_icall_System_Threading_Semaphore_CreateSemaphore_internal (gint32 ini
 
 	return(sem);
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT) */
 
 MonoBoolean ves_icall_System_Threading_Semaphore_ReleaseSemaphore_internal (HANDLE handle, gint32 releaseCount, gint32 *prevcount)
 { 

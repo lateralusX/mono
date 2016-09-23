@@ -206,17 +206,18 @@ g_filename_from_utf8 (const gchar *utf8string, gssize len, gsize *bytes_read, gs
 }
 
 #ifdef G_OS_WIN32
+extern WINBASEAPI UINT WINAPI GetACP(void);
 gboolean
 g_get_charset (G_CONST_RETURN char **charset)
 {
 	if (my_charset == NULL) {
 		static char buf [14];
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
-		sprintf (buf, "CP%u", GetACP ());
-#else
-		CPINFOEX cp_info;
-		GetCPInfoEx (CP_ACP, 0, &cp_info);
+#if G_HAVE_API_SUPPORT(HAVE_UWP_WINAPI_SUPPORT)
+		CPINFOEXA cp_info;
+		GetCPInfoExA (CP_ACP, 0, &cp_info);
 		sprintf (buf, "CP%u", cp_info.CodePage);
+#else
+		sprintf (buf, "CP%u", GetACP ());
 #endif
 		my_charset = buf;
 		is_utf8 = FALSE;

@@ -40,7 +40,7 @@ typedef struct pollfd {
 } WSAPOLLFD, *PWSAPOLLFD, *LPWSAPOLLFD;
 #endif
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 #include <mswsock.h>
 #endif
 

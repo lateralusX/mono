@@ -1063,41 +1063,9 @@ glong     g_utf8_pointer_to_offset (const gchar *str, const gchar *pos);
  
 #define GLIB_CHECK_VERSION(a,b,c) ((a < _EGLIB_MAJOR) || (a == _EGLIB_MAJOR && (b < _EGLIB_MIDDLE || (b == _EGLIB_MIDDLE && c <= _EGLIB_MINOR))))
 
-/*
-* API Family support.
-*/
-#define G_API_FAMILY_PARTITION(x) (x)
-
-#ifdef G_OS_WIN32
-#include <winapifamily.h>
-
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
-	#define G_API_FAMILY_NAME "DEFAULT"
-	#define G_API_PARTITION_DEFAULT 1
-	#define G_API_PARTITION_WIN_APP 0
-	#define G_API_PARTITION_WIN_TV_TITLE 0
-#elif WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_APP)
-	#define G_API_FAMILY_NAME "WIN-APP"
-	#define G_API_PARTITION_DEFAULT 0
-	#define G_API_PARTITION_WIN_APP 1
-	#define G_API_PARTITION_WIN_TV_TITLE 0
-#elif WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_TV_TITLE)
-	#define G_API_FAMILY_NAME "WIN-TV-TITLE"
-	#define G_API_PARTITION_DEFAULT 0
-	#define G_API_PARTITION_WIN_APP 0
-	#define G_API_PARTITION_WIN_TV_TITLE 1
-#else
-	#error Unsupported API family
-#endif
-#else
-	#define G_API_FAMILY_NAME "DEFAULT"
-	#define G_API_PARTITION_DEFAULT 1
-	#define G_API_PARTITION_WIN_APP 0
-	#define G_API_PARTITION_WIN_TV_TITLE 0
-#endif
-
-#define G_UNSUPPORTED_API "%s:%d: '%s' not supported by API Family '%s'.", __FILE__, __LINE__
-#define g_unsupported_api(name) G_STMT_START { g_warning (G_UNSUPPORTED_API, name, G_API_FAMILY_NAME); } G_STMT_END
+#define G_HAVE_API_SUPPORT(x) (x)
+#define G_UNSUPPORTED_API "%s:%d: '%s' not supported.", __FILE__, __LINE__
+#define g_unsupported_api(name) G_STMT_START { g_warning (G_UNSUPPORTED_API, name); } G_STMT_END
  
 G_END_DECLS
 

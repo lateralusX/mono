@@ -615,7 +615,7 @@ ves_icall_System_IO_MonoIO_MoveFile (MonoString *path, MonoString *dest,
 	
 	*error=ERROR_SUCCESS;
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 	ret = MoveFile (mono_string_chars (path), mono_string_chars (dest));
 #else
 	ret = MoveFileEx (mono_string_chars (path), mono_string_chars (dest), MOVEFILE_COPY_ALLOWED);
@@ -650,7 +650,7 @@ ves_icall_System_IO_MonoIO_ReplaceFile (MonoString *sourceFileName, MonoString *
 	if (ignoreMetadataErrors)
 		replaceFlags |= REPLACEFILE_IGNORE_MERGE_ERRORS;
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT)
 	/* FIXME: source and destination file names must not be NULL, but apparently they might be! */
 	ret = ReplaceFile (utf16_destinationFileName, utf16_sourceFileName, utf16_destinationBackupFileName, replaceFlags, NULL, NULL);
 #else
@@ -678,7 +678,7 @@ ves_icall_System_IO_MonoIO_CopyFile (MonoString *path, MonoString *dest,
 	
 	*error=ERROR_SUCCESS;
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 	ret=CopyFile (mono_string_chars (path), mono_string_chars (dest), !overwrite);
 #else
 	COPYFILE2_EXTENDED_PARAMETERS copy_param = {0};
@@ -971,7 +971,7 @@ ves_icall_System_IO_MonoIO_Flush (HANDLE handle, gint32 *error)
 	return(ret);
 }
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 gint64
 ves_icall_System_IO_MonoIO_GetLength (HANDLE handle, gint32 *error)
 {
@@ -989,7 +989,7 @@ ves_icall_System_IO_MonoIO_GetLength (HANDLE handle, gint32 *error)
 	return length | ((gint64)length_hi << 32);
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 gint64
 ves_icall_System_IO_MonoIO_GetLength (HANDLE handle, gint32 *error)
@@ -1003,7 +1003,7 @@ ves_icall_System_IO_MonoIO_GetLength (HANDLE handle, gint32 *error)
 	MONO_EXIT_GC_SAFE;
 	return length.QuadPart;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 /* FIXME make gc suspendable */
 MonoBoolean
@@ -1236,7 +1236,7 @@ ves_icall_System_IO_MonoIO_get_InvalidPathChars ()
 	return chars;
 }
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT)
 void ves_icall_System_IO_MonoIO_Lock (HANDLE handle, gint64 position,
 				      gint64 length, gint32 *error)
 {
@@ -1254,7 +1254,7 @@ void ves_icall_System_IO_MonoIO_Lock (HANDLE handle, gint64 position,
 	MONO_EXIT_GC_SAFE;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT) */
 
 void ves_icall_System_IO_MonoIO_Lock (HANDLE handle, gint64 position,
 				      gint64 length, gint32 *error)
@@ -1267,9 +1267,9 @@ void ves_icall_System_IO_MonoIO_Lock (HANDLE handle, gint64 position,
 	SetLastError (*error);
 	return;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT) */
 
-#if G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT)
 void ves_icall_System_IO_MonoIO_Unlock (HANDLE handle, gint64 position,
 					gint64 length, gint32 *error)
 {
@@ -1287,7 +1287,7 @@ void ves_icall_System_IO_MonoIO_Unlock (HANDLE handle, gint64 position,
 	MONO_EXIT_GC_SAFE;
 }
 
-#else /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP) */
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT) */
 
 void ves_icall_System_IO_MonoIO_Unlock (HANDLE handle, gint64 position,
 					gint64 length, gint32 *error)
@@ -1300,7 +1300,7 @@ void ves_icall_System_IO_MonoIO_Unlock (HANDLE handle, gint64 position,
 	SetLastError (*error);
 	return;
 }
-#endif /* G_API_FAMILY_PARTITION(G_API_PARTITION_DEFAULT | G_API_PARTITION_WIN_APP) */
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT) */
 
 //Support for io-layer free mmap'd files.
 
