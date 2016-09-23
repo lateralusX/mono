@@ -33,84 +33,6 @@
 
 #define IS_REX(inst) (((inst) >= 0x40) && ((inst) <= 0x4f))
 
-/*
- * mono_arch_get_unbox_trampoline:
- * @m: method pointer
- * @addr: pointer to native code for @m
- *
- * when value type methods are called through the vtable we need to unbox the
- * this argument. This method returns a pointer to a trampoline which does
- * unboxing before calling the method
- */
-gpointer
-mono_arch_get_unbox_trampoline (MonoMethod *m, gpointer addr)
-{
-	guint8 *code, *start;
-	GSList *unwind_ops;
-	int this_reg, size = 20;
-
-	MonoDomain *domain = mono_domain_get ();
-
-	this_reg = mono_arch_get_this_arg_reg (NULL);
-
-	start = code = (guint8 *)mono_domain_code_reserve (domain, size);
-
-	unwind_ops = mono_arch_get_cie_program ();
-
-	amd64_alu_reg_imm (code, X86_ADD, this_reg, sizeof (MonoObject));
-	/* FIXME: Optimize this */
-	amd64_mov_reg_imm (code, AMD64_RAX, addr);
-	amd64_jump_reg (code, AMD64_RAX);
-	g_assert ((code - start) < size);
-
-	mono_arch_flush_icache (start, code - start);
-	mono_profiler_code_buffer_new (start, code - start, MONO_PROFILER_CODE_BUFFER_UNBOX_TRAMPOLINE, m);
-
-	mono_tramp_info_register (mono_tramp_info_create (NULL, start, code - start, NULL, unwind_ops), domain);
-
-	return start;
-}
-
-/*
- * mono_arch_get_static_rgctx_trampoline:
- *
- *   Create a trampoline which sets RGCTX_REG to MRGCTX, then jumps to ADDR.
- */
-gpointer
-mono_arch_get_static_rgctx_trampoline (MonoMethod *m, MonoMethodRuntimeGenericContext *mrgctx, gpointer addr)
-{
-	guint8 *code, *start;
-	GSList *unwind_ops;
-	int buf_len;
-
-	MonoDomain *domain = mono_domain_get ();
-
-#ifdef MONO_ARCH_NOMAP32BIT
-	buf_len = 32;
-#else
-	/* AOTed code could still have a non-32 bit address */
-	if ((((guint64)addr) >> 32) == 0)
-		buf_len = 16;
-	else
-		buf_len = 30;
-#endif
-
-	start = code = (guint8 *)mono_domain_code_reserve (domain, buf_len);
-
-	unwind_ops = mono_arch_get_cie_program ();
-
-	amd64_mov_reg_imm (code, MONO_ARCH_RGCTX_REG, mrgctx);
-	amd64_jump_code (code, addr);
-	g_assert ((code - start) < buf_len);
-
-	mono_arch_flush_icache (start, code - start);
-	mono_profiler_code_buffer_new (start, code - start, MONO_PROFILER_CODE_BUFFER_GENERICS_TRAMPOLINE, NULL);
-
-	mono_tramp_info_register (mono_tramp_info_create (NULL, start, code - start, NULL, unwind_ops), domain);
-
-	return start;
-}
-
 #ifdef _WIN64
 // Workaround lack of Valgrind support for 64-bit Windows
 #define VALGRIND_DISCARD_TRANSLATIONS(...)
@@ -171,26 +93,6 @@ mono_arch_patch_callsite (guint8 *method_start, guint8 *orig_code, guint8 *addr)
 	}
 }
 
-guint8*
-mono_arch_create_llvm_native_thunk (MonoDomain *domain, guint8 *addr)
-{
-	/*
-	 * The caller is LLVM code and the call displacement might exceed 32 bits. We can't determine the caller address, so
-	 * we add a thunk every time.
-	 * Since the caller is also allocated using the domain code manager, hopefully the displacement will fit into 32 bits.
-	 * FIXME: Avoid this if possible if !MONO_ARCH_NOMAP32BIT and ADDR is 32 bits.
-	 */
-	guint8 *thunk_start, *thunk_code;
-
-	thunk_start = thunk_code = (guint8 *)mono_domain_code_reserve (mono_domain_get (), 32);
-	amd64_jump_membase (thunk_code, AMD64_RIP, 0);
-	*(guint64*)thunk_code = (guint64)addr;
-	addr = thunk_start;
-	mono_arch_flush_icache (thunk_start, thunk_code - thunk_start);
-	mono_profiler_code_buffer_new (thunk_start, thunk_code - thunk_start, MONO_PROFILER_CODE_BUFFER_HELPER, NULL);
-	return addr;
-}
-
 void
 mono_arch_patch_plt_entry (guint8 *code, gpointer *got, mgreg_t *regs, guint8 *addr)
 {
@@ -207,6 +109,44 @@ mono_arch_patch_plt_entry (guint8 *code, gpointer *got, mgreg_t *regs, guint8 *a
 
 	InterlockedExchangePointer (plt_jump_table_entry, addr);
 }
+
+/*
+ * mono_arch_get_call_target:
+ *
+ *   Return the address called by the code before CODE if exists.
+ */
+guint8*
+mono_arch_get_call_target (guint8 *code)
+{
+	if (code [-5] == 0xe8) {
+		gint32 disp = *(gint32*)(code - 4);
+		guint8 *target = code + disp;
+
+		return target;
+	} else {
+		return NULL;
+	}
+}
+
+/*
+ * mono_arch_get_plt_info_offset:
+ *
+ *   Return the PLT info offset belonging to the plt entry PLT_ENTRY.
+ */
+guint32
+mono_arch_get_plt_info_offset (guint8 *plt_entry, mgreg_t *regs, guint8 *code)
+{
+	return *(guint32*)(plt_entry + 6);
+}
+
+gpointer
+mono_amd64_handler_block_trampoline_helper (void)
+{
+	MonoJitTlsData *jit_tls = (MonoJitTlsData *)mono_native_tls_get_value (mono_jit_tls_id);
+	return jit_tls->handler_block_return_address;
+}
+
+#ifndef DISABLE_JIT
 
 static void
 stack_unaligned (MonoTrampolineType tramp_type)
@@ -608,7 +548,85 @@ mono_arch_create_specific_trampoline (gpointer arg1, MonoTrampolineType tramp_ty
 	mono_profiler_code_buffer_new (buf, code - buf, MONO_PROFILER_CODE_BUFFER_SPECIFIC_TRAMPOLINE, mono_get_generic_trampoline_simple_name (tramp_type));
 
 	return buf;
-}	
+}
+
+/*
+ * mono_arch_get_unbox_trampoline:
+ * @m: method pointer
+ * @addr: pointer to native code for @m
+ *
+ * when value type methods are called through the vtable we need to unbox the
+ * this argument. This method returns a pointer to a trampoline which does
+ * unboxing before calling the method
+ */
+gpointer
+mono_arch_get_unbox_trampoline (MonoMethod *m, gpointer addr)
+{
+	guint8 *code, *start;
+	GSList *unwind_ops;
+	int this_reg, size = 20;
+
+	MonoDomain *domain = mono_domain_get ();
+
+	this_reg = mono_arch_get_this_arg_reg (NULL);
+
+	start = code = (guint8 *)mono_domain_code_reserve (domain, size);
+
+	unwind_ops = mono_arch_get_cie_program ();
+
+	amd64_alu_reg_imm (code, X86_ADD, this_reg, sizeof (MonoObject));
+	/* FIXME: Optimize this */
+	amd64_mov_reg_imm (code, AMD64_RAX, addr);
+	amd64_jump_reg (code, AMD64_RAX);
+	g_assert ((code - start) < size);
+
+	mono_arch_flush_icache (start, code - start);
+	mono_profiler_code_buffer_new (start, code - start, MONO_PROFILER_CODE_BUFFER_UNBOX_TRAMPOLINE, m);
+
+	mono_tramp_info_register (mono_tramp_info_create (NULL, start, code - start, NULL, unwind_ops), domain);
+
+	return start;
+}
+
+/*
+ * mono_arch_get_static_rgctx_trampoline:
+ *
+ *   Create a trampoline which sets RGCTX_REG to MRGCTX, then jumps to ADDR.
+ */
+gpointer
+mono_arch_get_static_rgctx_trampoline (MonoMethod *m, MonoMethodRuntimeGenericContext *mrgctx, gpointer addr)
+{
+	guint8 *code, *start;
+	GSList *unwind_ops;
+	int buf_len;
+
+	MonoDomain *domain = mono_domain_get ();
+
+#ifdef MONO_ARCH_NOMAP32BIT
+	buf_len = 32;
+#else
+	/* AOTed code could still have a non-32 bit address */
+	if ((((guint64)addr) >> 32) == 0)
+		buf_len = 16;
+	else
+		buf_len = 30;
+#endif
+
+	start = code = (guint8 *)mono_domain_code_reserve (domain, buf_len);
+
+	unwind_ops = mono_arch_get_cie_program ();
+
+	amd64_mov_reg_imm (code, MONO_ARCH_RGCTX_REG, mrgctx);
+	amd64_jump_code (code, addr);
+	g_assert ((code - start) < buf_len);
+
+	mono_arch_flush_icache (start, code - start);
+	mono_profiler_code_buffer_new (start, code - start, MONO_PROFILER_CODE_BUFFER_GENERICS_TRAMPOLINE, NULL);
+
+	mono_tramp_info_register (mono_tramp_info_create (NULL, start, code - start, NULL, unwind_ops), domain);
+
+	return start;
+}
 
 gpointer
 mono_arch_create_rgctx_lazy_fetch_trampoline (guint32 slot, MonoTrampInfo **info, gboolean aot)
@@ -744,26 +762,6 @@ mono_arch_create_general_rgctx_lazy_fetch_trampoline (MonoTrampInfo **info, gboo
 	return buf;
 }
 
-void
-mono_arch_invalidate_method (MonoJitInfo *ji, void *func, gpointer func_arg)
-{
-	/* FIXME: This is not thread safe */
-	guint8 *code = (guint8 *)ji->code_start;
-
-	amd64_mov_reg_imm (code, AMD64_ARG_REG1, func_arg);
-	amd64_mov_reg_imm (code, AMD64_R11, func);
-
-	x86_push_imm (code, (guint64)func_arg);
-	amd64_call_reg (code, AMD64_R11);
-}
-
-gpointer
-mono_amd64_handler_block_trampoline_helper (void)
-{
-	MonoJitTlsData *jit_tls = (MonoJitTlsData *)mono_native_tls_get_value (mono_jit_tls_id);
-	return jit_tls->handler_block_return_address;
-}
-
 gpointer
 mono_arch_create_handler_block_trampoline (MonoTrampInfo **info, gboolean aot)
 {
@@ -831,35 +829,6 @@ mono_arch_create_handler_block_trampoline (MonoTrampInfo **info, gboolean aot)
 	*info = mono_tramp_info_create ("handler_block_trampoline", buf, code - buf, ji, unwind_ops);
 
 	return buf;
-}
-
-/*
- * mono_arch_get_call_target:
- *
- *   Return the address called by the code before CODE if exists.
- */
-guint8*
-mono_arch_get_call_target (guint8 *code)
-{
-	if (code [-5] == 0xe8) {
-		gint32 disp = *(gint32*)(code - 4);
-		guint8 *target = code + disp;
-
-		return target;
-	} else {
-		return NULL;
-	}
-}
-
-/*
- * mono_arch_get_plt_info_offset:
- *
- *   Return the PLT info offset belonging to the plt entry PLT_ENTRY.
- */
-guint32
-mono_arch_get_plt_info_offset (guint8 *plt_entry, mgreg_t *regs, guint8 *code)
-{
-	return *(guint32*)(plt_entry + 6);
 }
 
 /*
@@ -960,3 +929,103 @@ mono_arch_create_sdb_trampoline (gboolean single_step, MonoTrampInfo **info, gbo
 
 	return buf;
 }
+
+guint8*
+mono_arch_create_llvm_native_thunk (MonoDomain *domain, guint8 *addr)
+{
+	/*
+	 * The caller is LLVM code and the call displacement might exceed 32 bits. We can't determine the caller address, so
+	 * we add a thunk every time.
+	 * Since the caller is also allocated using the domain code manager, hopefully the displacement will fit into 32 bits.
+	 * FIXME: Avoid this if possible if !MONO_ARCH_NOMAP32BIT and ADDR is 32 bits.
+	 */
+	guint8 *thunk_start, *thunk_code;
+
+	thunk_start = thunk_code = (guint8 *)mono_domain_code_reserve (mono_domain_get (), 32);
+	amd64_jump_membase (thunk_code, AMD64_RIP, 0);
+	*(guint64*)thunk_code = (guint64)addr;
+	addr = thunk_start;
+	mono_arch_flush_icache (thunk_start, thunk_code - thunk_start);
+	mono_profiler_code_buffer_new (thunk_start, thunk_code - thunk_start, MONO_PROFILER_CODE_BUFFER_HELPER, NULL);
+	return addr;
+}
+
+void
+mono_arch_invalidate_method (MonoJitInfo *ji, void *func, gpointer func_arg)
+{
+	/* FIXME: This is not thread safe */
+	guint8 *code = (guint8 *)ji->code_start;
+
+	amd64_mov_reg_imm (code, AMD64_ARG_REG1, func_arg);
+	amd64_mov_reg_imm (code, AMD64_R11, func);
+
+	x86_push_imm (code, (guint64)func_arg);
+	amd64_call_reg (code, AMD64_R11);
+}
+
+#else /* DISABLE_JIT */
+
+guchar*
+mono_arch_create_generic_trampoline (MonoTrampolineType tramp_type, MonoTrampInfo **info, gboolean aot)
+{
+	g_assert_not_reached ();
+	return NULL;
+}
+
+gpointer
+mono_arch_create_specific_trampoline (gpointer arg1, MonoTrampolineType tramp_type, MonoDomain *domain, guint32 *code_len)
+{
+	g_assert_not_reached ();
+	return NULL;
+}
+
+gpointer
+mono_arch_get_unbox_trampoline (MonoMethod *m, gpointer addr)
+{
+	g_assert_not_reached ();
+	return NULL;
+}
+
+gpointer
+mono_arch_get_static_rgctx_trampoline (MonoMethod *m, MonoMethodRuntimeGenericContext *mrgctx, gpointer addr)
+{
+	g_assert_not_reached ();
+	return NULL;
+}
+
+gpointer
+mono_arch_create_rgctx_lazy_fetch_trampoline (guint32 slot, MonoTrampInfo **info, gboolean aot)
+{
+	g_assert_not_reached ();
+	return NULL;
+}
+
+gpointer
+mono_arch_create_general_rgctx_lazy_fetch_trampoline (MonoTrampInfo **info, gboolean aot)
+{
+	g_assert_not_reached ();
+	return NULL;
+}
+
+gpointer
+mono_arch_create_handler_block_trampoline (MonoTrampInfo **info, gboolean aot)
+{
+        g_assert_not_reached ();
+        return NULL;
+}
+
+guint8*
+mono_arch_create_sdb_trampoline (gboolean single_step, MonoTrampInfo **info, gboolean aot)
+{
+	g_assert_not_reached ();
+	return NULL;
+}
+
+void
+mono_arch_invalidate_method (MonoJitInfo *ji, void *func, gpointer func_arg)
+{
+	g_assert_not_reached ();
+	return NULL;
+}
+
+#endif /* !DISABLE_JIT */
