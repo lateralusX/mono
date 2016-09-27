@@ -51,7 +51,7 @@
 
 #include "jit-icalls.h"
 
-#ifdef _WIN32
+#if defined(HOST_WIN32) && G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 #include <mmsystem.h>
 #endif
 
@@ -91,16 +91,13 @@ MONO_SIG_HANDLER_SIGNATURE (mono_chain_signal)
 	return TRUE;
 }
 
-static HANDLE win32_main_thread;
-static MMRESULT win32_timer;
-
-static void CALLBACK
-win32_time_proc (UINT uID, UINT uMsg, DWORD dwUser, DWORD dw1, DWORD dw2)
+static VOID
+thread_timer_expired (HANDLE thread)
 {
 	CONTEXT context;
 
 	context.ContextFlags = CONTEXT_CONTROL;
-	if (GetThreadContext (win32_main_thread, &context)) {
+	if (GetThreadContext (thread, &context)) {
 #ifdef _WIN64
 		mono_profiler_stat_hit ((guchar *) context.Rip, &context);
 #else
@@ -109,34 +106,140 @@ win32_time_proc (UINT uID, UINT uMsg, DWORD dwUser, DWORD dw1, DWORD dw2)
 	}
 }
 
-void
-mono_runtime_setup_stat_profiler (void)
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
+static MMRESULT	g_timer_event = 0;
+static HANDLE g_timer_main_thread = INVALID_HANDLE_VALUE;
+
+static VOID CALLBACK
+timer_event_proc (UINT uID, UINT uMsg, DWORD_PTR dwUser, DWORD_PTR dw1, DWORD_PTR dw2)
 {
-	static int inited = 0;
+	thread_timer_expired ((HANDLE)dwUser);
+}
+
+static VOID
+stop_profiler_timer_event (void)
+{
+	if (g_timer_event != 0) {
+
+		timeKillEvent (g_timer_event);
+		g_timer_event = 0;
+	}
+
+	if (g_timer_main_thread != INVALID_HANDLE_VALUE) {
+
+		CloseHandle (g_timer_main_thread);
+		g_timer_main_thread = INVALID_HANDLE_VALUE;
+	}
+}
+
+static VOID
+start_profiler_timer_event (void)
+{
+	g_return_if_fail (g_timer_main_thread == INVALID_HANDLE_VALUE && g_timer_event == 0);
+
 	TIMECAPS timecaps;
 
-	if (inited)
-		return;
-
-	inited = 1;
 	if (timeGetDevCaps (&timecaps, sizeof (timecaps)) != TIMERR_NOERROR)
 		return;
 
-	if ((win32_main_thread = OpenThread (READ_CONTROL | THREAD_GET_CONTEXT, FALSE, GetCurrentThreadId ())) == NULL)
+	if ((g_timer_main_thread = OpenThread (READ_CONTROL | THREAD_GET_CONTEXT, FALSE, GetCurrentThreadId ())) == NULL)
 		return;
 
 	if (timeBeginPeriod (1) != TIMERR_NOERROR)
 		return;
 
-	if ((win32_timer = timeSetEvent (1, 0, (LPTIMECALLBACK)win32_time_proc, (DWORD_PTR)NULL, TIME_PERIODIC)) == 0) {
+	if ((g_timer_event = timeSetEvent (1, 0, (LPTIMECALLBACK)timer_event_proc, (DWORD_PTR)g_timer_main_thread, TIME_PERIODIC | TIME_KILL_SYNCHRONOUS)) == 0) {
 		timeEndPeriod (1);
 		return;
 	}
 }
 
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+
+static PTP_TIMER g_timer_event = NULL;
+static HANDLE g_timer_main_thread = INVALID_HANDLE_VALUE;
+
+static VOID CALLBACK
+threadpool_timer_callback (PTP_CALLBACK_INSTANCE instance, PVOID context, PTP_TIMER timer)
+{
+	thread_timer_expired ((HANDLE)context);
+	return;
+}
+
+static VOID
+stop_profiler_timer_event (void)
+{
+	if (g_timer_event != NULL) {
+
+		// Cancel timer and any running callbacks and wait for pending callbacks to complete.
+		SetThreadpoolTimer (g_timer_event, NULL, 0, 0);
+		WaitForThreadpoolTimerCallbacks (g_timer_event, TRUE);
+
+		// Now it's safe to close down the timer.
+		CloseThreadpoolTimer (g_timer_event);
+		g_timer_event = INVALID_HANDLE_VALUE;
+	}
+
+	if (g_timer_main_thread != INVALID_HANDLE_VALUE) {
+
+		// Done with main thread as well.
+		CloseHandle (g_timer_main_thread);
+		g_timer_main_thread = INVALID_HANDLE_VALUE;
+	}
+
+	return;
+}
+
+static VOID
+start_profiler_timer_event (void)
+{
+	g_return_if_fail (g_timer_main_thread == INVALID_HANDLE_VALUE && g_timer_event == NULL);
+
+	BOOL result = FALSE;
+
+	g_timer_main_thread = OpenThread (READ_CONTROL | THREAD_GET_CONTEXT, FALSE, GetCurrentThreadId ());
+	if (g_timer_main_thread != INVALID_HANDLE_VALUE)
+	{
+		g_timer_event = CreateThreadpoolTimer (threadpool_timer_callback, (PVOID)g_timer_main_thread, NULL);
+		if (g_timer_event != NULL) {
+
+			ULARGE_INTEGER due_time;
+			FILETIME timer_due;
+
+			// Use a precision of 1ms (expressed in number of 100 ns blocks). Negative value
+			// means relative current time.
+			due_time.QuadPart = (ULONGLONG) -(10 * 1000);
+			timer_due.dwHighDateTime = due_time.HighPart;
+			timer_due.dwLowDateTime  = due_time.LowPart;
+
+			// Schedule periodic timer.
+			SetThreadpoolTimer (g_timer_event, &timer_due, 1, 0);
+
+			result = TRUE;
+		}
+	}
+
+	if (result == FALSE) {
+
+		stop_profiler_timer_event ();
+	}
+
+	return;
+}
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+
+void
+mono_runtime_setup_stat_profiler (void)
+{
+	start_profiler_timer_event ();
+	return;
+}
+
 void
 mono_runtime_shutdown_stat_profiler (void)
 {
+	stop_profiler_timer_event ();
+	return;
 }
 
 gboolean
@@ -145,7 +248,6 @@ mono_thread_state_init_from_handle (MonoThreadUnwindState *tctx, MonoThreadInfo 
 	DWORD id = mono_thread_info_get_tid (info);
 	HANDLE handle;
 	CONTEXT context;
-	DWORD result;
 	MonoContext *ctx;
 	MonoJitTlsData *jit_tls;
 	void *domain;
