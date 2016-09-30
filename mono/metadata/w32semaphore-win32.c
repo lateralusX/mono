@@ -22,7 +22,11 @@ ves_icall_System_Threading_Semaphore_CreateSemaphore_internal (gint32 initialCou
 { 
 	HANDLE sem;
 
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT)
 	sem = CreateSemaphore (NULL, initialCount, maximumCount, name ? mono_string_chars (name) : NULL);
+#else
+	sem = CreateSemaphoreEx (NULL, initialCount, maximumCount, name ? mono_string_chars (name) : NULL, 0, SEMAPHORE_ALL_ACCESS);
+#endif
 
 	*error = GetLastError ();
 

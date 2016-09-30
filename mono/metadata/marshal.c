@@ -11087,10 +11087,15 @@ ves_icall_System_Runtime_InteropServices_Marshal_AllocHGlobal (gpointer size)
 		s = 4;
 
 #ifdef HOST_WIN32
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 	res = GlobalAlloc (GMEM_FIXED, s);
+#else
+	res = HeapAlloc (GetProcessHeap (), 0, size);
+#endif
 #else
 	res = g_try_malloc (s);
 #endif
+
 	if (!res) {
 		mono_set_pending_exception (mono_domain_get ()->out_of_memory_ex);
 		return NULL;
@@ -11111,10 +11116,15 @@ ves_icall_System_Runtime_InteropServices_Marshal_ReAllocHGlobal (gpointer ptr, g
 	}
 
 #ifdef HOST_WIN32
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 	res = GlobalReAlloc (ptr, s, GMEM_MOVEABLE);
+#else
+	res = HeapReAlloc (GetProcessHeap (), 0, ptr, size);
+#endif
 #else
 	res = g_try_realloc (ptr, s);
 #endif
+
 	if (!res) {
 		mono_set_pending_exception (mono_domain_get ()->out_of_memory_ex);
 		return NULL;
@@ -11127,7 +11137,11 @@ void
 ves_icall_System_Runtime_InteropServices_Marshal_FreeHGlobal (void *ptr)
 {
 #ifdef HOST_WIN32
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 	GlobalFree (ptr);
+#else
+	HeapFree (GetProcessHeap (), 0, ptr);
+#endif
 #else
 	g_free (ptr);
 #endif

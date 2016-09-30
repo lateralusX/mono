@@ -24,8 +24,10 @@
 
 #ifdef HOST_WIN32
 
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 #include <aclapi.h>
 #include <accctrl.h>
+#endif
 
 #ifndef PROTECTED_DACL_SECURITY_INFORMATION
 #define PROTECTED_DACL_SECURITY_INFORMATION	0x80000000L
@@ -69,11 +71,12 @@
 
 /* internal functions - reuse driven */
 
+/* ask a server to translate a SID into a textual representation */
 #ifdef HOST_WIN32
 
-/* ask a server to translate a SID into a textual representation */
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 static gunichar2*
-GetSidName (gunichar2 *server, PSID sid, gint32 *size) 
+GetSidName (gunichar2 *server, PSID sid, gint32 *size)
 {
 	gunichar2 *uniname = NULL;
 	DWORD cchName = 0;
@@ -117,8 +120,26 @@ GetSidName (gunichar2 *server, PSID sid, gint32 *size)
 	return uniname;
 }
 
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
-#else /* not HOST_WIN32 */
+static gunichar2*
+GetSidName (gunichar2 *server, PSID sid, gint32 *size)
+{
+	MonoError mono_error;
+	mono_error_init (&mono_error);
+
+	g_unsupported_api ("LookupAccountSid");
+
+	mono_error_set_not_supported (&mono_error, G_UNSUPPORTED_API, "LookupAccountSid");
+	mono_error_set_pending_exception (&mono_error);
+
+	SetLastError (ERROR_NOT_SUPPORTED);
+
+	return NULL;
+}
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+
+#else /* HOST_WIN32 */
 
 #define MONO_SYSCONF_DEFAULT_SIZE	((size_t) 1024)
 
@@ -255,22 +276,20 @@ IsMemberOf (gid_t user, struct group *g)
 	/* is the user in the group list */
 	return IsMemberInList (user, g);
 }
-
-#endif
-
+#endif /* HOST_WIN32 */
 
 /* ICALLS */
 
-
 /* System.Security.Principal.WindowsIdentity */
 
+#ifdef HOST_WIN32
 
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 gpointer
 ves_icall_System_Security_Principal_WindowsIdentity_GetCurrentToken (void)
 {
 	gpointer token = NULL;
 
-#ifdef HOST_WIN32
 	/* Note: This isn't a copy of the Token - we must not close it!!!
 	 * http://www.develop.com/kbrown/book/html/whatis_windowsprincipal.html
 	 */
@@ -280,12 +299,95 @@ ves_icall_System_Security_Principal_WindowsIdentity_GetCurrentToken (void)
 		/* if not take the process identity */
 		OpenProcessToken (GetCurrentProcess (), MAXIMUM_ALLOWED, &token);
 	}
-#else
-	token = GINT_TO_POINTER (geteuid ());
-#endif
+
 	return token;
 }
 
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+
+gpointer
+ves_icall_System_Security_Principal_WindowsIdentity_GetCurrentToken (void)
+{
+	MonoError mono_error;
+	mono_error_init (&mono_error);
+
+	g_unsupported_api ("OpenThreadToken, OpenProcessToken");
+
+	mono_error_set_not_supported (&mono_error, G_UNSUPPORTED_API, "OpenThreadToken, OpenProcessToken");
+	mono_error_set_pending_exception (&mono_error);
+
+	SetLastError (ERROR_NOT_SUPPORTED);
+
+	return NULL;
+}
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+
+#else /* HOST_WIN32 */
+
+gpointer
+ves_icall_System_Security_Principal_WindowsIdentity_GetCurrentToken (void)
+{
+	return GINT_TO_POINTER (geteuid ());
+}
+#endif /* HOST_WIN32 */
+
+#ifdef HOST_WIN32
+
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
+static gint32
+internal_get_token_name (gpointer token, gunichar2 ** uniname)
+{
+	gint32 size = 0;
+
+	GetTokenInformation (token, TokenUser, NULL, size, (PDWORD)&size);
+	if (size > 0) {
+		TOKEN_USER *tu = g_malloc0 (size);
+		if (GetTokenInformation (token, TokenUser, tu, size, (PDWORD)&size)) {
+			*uniname = GetSidName (NULL, tu->User.Sid, &size);
+		}
+		g_free (tu);
+	}
+
+	return size;
+}
+
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+
+static gint32
+internal_get_token_name (gpointer token, gunichar2 ** uniname)
+{
+	MonoError mono_error;
+	mono_error_init (&mono_error);
+
+	g_unsupported_api ("GetTokenInformation");
+
+	mono_error_set_not_supported (&mono_error, G_UNSUPPORTED_API, "GetTokenInformation");
+	mono_error_set_pending_exception (&mono_error);
+
+	SetLastError (ERROR_NOT_SUPPORTED);
+
+	return 0;
+}
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+
+#else /* HOST_WIN32 */
+
+static gint32
+internal_get_token_name (gpointer token, gunichar2 ** uniname)
+{
+	gint32 size = 0;
+
+	gchar *uname = GetTokenName ((uid_t) GPOINTER_TO_INT (token));
+
+	if (uname) {
+		size = strlen (uname);
+		*uniname = g_utf8_to_utf16 (uname, size, NULL, NULL, NULL);
+		g_free (uname);
+	}
+
+	return size;
+}
+#endif  /* HOST_WIN32 */
 
 MonoString*
 ves_icall_System_Security_Principal_WindowsIdentity_GetTokenName (gpointer token)
@@ -296,24 +398,8 @@ ves_icall_System_Security_Principal_WindowsIdentity_GetTokenName (gpointer token
 	gint32 size = 0;
 
 	mono_error_init (&error);
-#ifdef HOST_WIN32
-	GetTokenInformation (token, TokenUser, NULL, size, (PDWORD)&size);
-	if (size > 0) {
-		TOKEN_USER *tu = g_malloc0 (size);
-		if (GetTokenInformation (token, TokenUser, tu, size, (PDWORD)&size)) {
-			uniname = GetSidName (NULL, tu->User.Sid, &size);
-		}
-		g_free (tu);
-	}
-#else 
-	gchar *uname = GetTokenName ((uid_t) GPOINTER_TO_INT (token));
 
-	if (uname) {
-		size = strlen (uname);
-		uniname = g_utf8_to_utf16 (uname, size, NULL, NULL, NULL);
-		g_free (uname);
-	}
-#endif /* HOST_WIN32 */
+	size = internal_get_token_name (token, &uniname);
 
 	if (size > 0) {
 		result = mono_string_new_utf16_checked (mono_domain_get (), uniname, size, &error);
@@ -327,7 +413,6 @@ ves_icall_System_Security_Principal_WindowsIdentity_GetTokenName (gpointer token
 	mono_error_set_pending_exception (&error);
 	return result;
 }
-
 
 gpointer
 ves_icall_System_Security_Principal_WindowsIdentity_GetUserToken (MonoString *username)
@@ -384,17 +469,20 @@ ves_icall_System_Security_Principal_WindowsIdentity_GetUserToken (MonoString *us
 	return token;
 }
 
-
 /* http://www.dotnet247.com/247reference/msgs/39/195403.aspx
 // internal static string[] WindowsIdentity._GetRoles (IntPtr token)
 */
+
+#ifdef HOST_WIN32
+
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 MonoArray*
-ves_icall_System_Security_Principal_WindowsIdentity_GetRoles (gpointer token) 
+ves_icall_System_Security_Principal_WindowsIdentity_GetRoles (gpointer token)
 {
 	MonoError error;
 	MonoArray *array = NULL;
-	MonoDomain *domain = mono_domain_get (); 
-#ifdef HOST_WIN32
+	MonoDomain *domain = mono_domain_get ();
+
 	gint32 size = 0;
 
 	GetTokenInformation (token, TokenGroups, NULL, size, (PDWORD)&size);
@@ -429,10 +517,7 @@ ves_icall_System_Security_Principal_WindowsIdentity_GetRoles (gpointer token)
 		}
 		g_free (tg);
 	}
-#else
-	/* POSIX-compliant systems should use IsMemberOfGroupId or IsMemberOfGroupName */
-	g_warning ("WindowsIdentity._GetRoles should never be called on POSIX");
-#endif
+
 	if (!array) {
 		/* return empty array of string, i.e. string [0] */
 		array = mono_array_new_checked (domain, mono_get_string_class (), 0, &error);
@@ -441,6 +526,35 @@ ves_icall_System_Security_Principal_WindowsIdentity_GetRoles (gpointer token)
 	return array;
 }
 
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+
+MonoArray*
+ves_icall_System_Security_Principal_WindowsIdentity_GetRoles (gpointer token)
+{
+	MonoError mono_error;
+	mono_error_init (&mono_error);
+
+	g_unsupported_api ("GetTokenInformation");
+
+	mono_error_set_not_supported (&mono_error, G_UNSUPPORTED_API, "GetTokenInformation");
+	mono_error_set_pending_exception (&mono_error);
+
+	SetLastError (ERROR_NOT_SUPPORTED);
+
+	return NULL;
+}
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+
+#else /* HOST_WIN32 */
+
+MonoArray*
+ves_icall_System_Security_Principal_WindowsIdentity_GetRoles (gpointer token)
+{
+	/* POSIX-compliant systems should use IsMemberOfGroupId or IsMemberOfGroupName */
+	g_warning ("WindowsIdentity._GetRoles should never be called on POSIX");
+	return NULL;
+}
+#endif /* HOST_WIN32 */
 
 /* System.Security.Principal.WindowsImpersonationContext */
 
@@ -456,23 +570,48 @@ ves_icall_System_Security_Principal_WindowsImpersonationContext_CloseToken (gpoi
 	return result;
 }
 
+#ifdef HOST_WIN32
 
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 gpointer
 ves_icall_System_Security_Principal_WindowsImpersonationContext_DuplicateToken (gpointer token)
 {
 	gpointer dupe = NULL;
 
-#ifdef HOST_WIN32
 	if (DuplicateToken (token, SecurityImpersonation, &dupe) == 0) {
 		dupe = NULL;
 	}
-#else
-	dupe = token;
-#endif
 	return dupe;
 }
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
+gpointer
+ves_icall_System_Security_Principal_WindowsImpersonationContext_DuplicateToken (gpointer token)
+{
+	MonoError mono_error;
+	mono_error_init (&mono_error);
 
+	g_unsupported_api ("DuplicateToken");
+
+	mono_error_set_not_supported (&mono_error, G_UNSUPPORTED_API, "DuplicateToken");
+	mono_error_set_pending_exception (&mono_error);
+
+	SetLastError (ERROR_NOT_SUPPORTED);
+
+	return NULL;
+}
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+
+#else /* HOST_WIN32 */
+
+gpointer
+ves_icall_System_Security_Principal_WindowsImpersonationContext_DuplicateToken (gpointer token)
+{
+	return token;
+}
+#endif /* HOST_WIN32 */
+
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 gboolean
 ves_icall_System_Security_Principal_WindowsImpersonationContext_SetCurrentToken (gpointer token)
 {
@@ -480,7 +619,26 @@ ves_icall_System_Security_Principal_WindowsImpersonationContext_SetCurrentToken 
 	return (ImpersonateLoggedOnUser (token) != 0);
 }
 
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
+gboolean
+ves_icall_System_Security_Principal_WindowsImpersonationContext_SetCurrentToken (gpointer token)
+{
+	MonoError mono_error;
+	mono_error_init (&mono_error);
+
+	g_unsupported_api ("ImpersonateLoggedOnUser");
+
+	mono_error_set_not_supported (&mono_error, G_UNSUPPORTED_API, "ImpersonateLoggedOnUser");
+	mono_error_set_pending_exception (&mono_error);
+
+	SetLastError (ERROR_NOT_SUPPORTED);
+
+	return FALSE;
+}
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 gboolean
 ves_icall_System_Security_Principal_WindowsImpersonationContext_RevertToSelf (void)
 {
@@ -488,6 +646,24 @@ ves_icall_System_Security_Principal_WindowsImpersonationContext_RevertToSelf (vo
 	return (RevertToSelf () != 0);
 }
 
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+
+gboolean
+ves_icall_System_Security_Principal_WindowsImpersonationContext_RevertToSelf (void)
+{
+	MonoError mono_error;
+	mono_error_init (&mono_error);
+
+	g_unsupported_api ("RevertToSelf");
+
+	mono_error_set_not_supported(&mono_error, G_UNSUPPORTED_API, "RevertToSelf");
+	mono_error_set_pending_exception (&mono_error);
+
+	SetLastError (ERROR_NOT_SUPPORTED);
+
+	return FALSE;
+}
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 /* System.Security.Principal.WindowsPrincipal */
 
@@ -538,7 +714,6 @@ ves_icall_System_Security_Principal_WindowsPrincipal_IsMemberOfGroupId (gpointer
 	return result;
 }
 
-
 gboolean
 ves_icall_System_Security_Principal_WindowsPrincipal_IsMemberOfGroupName (gpointer user, MonoString *group)
 {
@@ -586,13 +761,13 @@ ves_icall_System_Security_Principal_WindowsPrincipal_IsMemberOfGroupName (gpoint
 	return result;
 }
 
-
 /* Mono.Security.Cryptography IO related internal calls */
 
 #ifdef HOST_WIN32
 
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 static PSID
-GetAdministratorsSid (void) 
+GetAdministratorsSid (void)
 {
 	SID_IDENTIFIER_AUTHORITY admins = SECURITY_NT_AUTHORITY;
 	PSID pSid = NULL;
@@ -603,7 +778,19 @@ GetAdministratorsSid (void)
 	return pSid;
 }
 
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
+static PSID
+GetAdministratorsSid (void)
+{
+	g_unsupported_api ("AllocateAndInitializeSid");
+	SetLastError (ERROR_NOT_SUPPORTED);
+
+	return NULL;
+}
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 static PSID
 GetEveryoneSid (void)
 {
@@ -615,9 +802,21 @@ GetEveryoneSid (void)
 	return pSid;
 }
 
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 static PSID
-GetCurrentUserSid (void) 
+GetEveryoneSid (void)
+{
+	g_unsupported_api ("AllocateAndInitializeSid");
+	SetLastError (ERROR_NOT_SUPPORTED);
+
+	return NULL;
+}
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
+static PSID
+GetCurrentUserSid (void)
 {
 	PSID sid = NULL;
 	guint32 size = 0;
@@ -640,7 +839,19 @@ GetCurrentUserSid (void)
 	return sid;
 }
 
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
+static PSID
+GetCurrentUserSid (void)
+{
+	g_unsupported_api ("GetTokenInformation");
+	SetLastError (ERROR_NOT_SUPPORTED);
+
+	return NULL;
+}
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 static ACCESS_MASK
 GetRightsFromSid (PSID sid, PACL acl) 
 {
@@ -654,8 +865,21 @@ GetRightsFromSid (PSID sid, PACL acl)
 	return rights;
 }
 
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
-static gboolean 
+static ACCESS_MASK
+GetRightsFromSid (PSID sid, PACL acl)
+{
+	g_unsupported_api ("BuildTrusteeWithSid, GetEffectiveRightsFromAcl");
+	SetLastError (ERROR_NOT_SUPPORTED);
+
+	return 0;
+}
+
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
+static gboolean
 IsMachineProtected (gunichar2 *path)
 {
 	gboolean success = FALSE;
@@ -686,8 +910,27 @@ IsMachineProtected (gunichar2 *path)
 	return success;
 }
 
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
-static gboolean 
+static gboolean
+IsMachineProtected (gunichar2 *path)
+{
+	MonoError mono_error;
+	mono_error_init (&mono_error);
+
+	g_unsupported_api ("GetNamedSecurityInfo, LocalFree");
+
+	mono_error_set_not_supported (&mono_error, G_UNSUPPORTED_API, "GetNamedSecurityInfo, LocalFree");
+	mono_error_set_pending_exception (&mono_error);
+
+	SetLastError (ERROR_NOT_SUPPORTED);
+
+	return FALSE;
+}
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
+static gboolean
 IsUserProtected (gunichar2 *path)
 {
 	gboolean success = FALSE;
@@ -719,8 +962,27 @@ IsUserProtected (gunichar2 *path)
 	return success;
 }
 
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
-static gboolean 
+static gboolean
+IsUserProtected (gunichar2 *path)
+{
+	MonoError mono_error;
+	mono_error_init (&mono_error);
+
+	g_unsupported_api ("GetNamedSecurityInfo, LocalFree");
+
+	mono_error_set_not_supported (&mono_error, G_UNSUPPORTED_API, "GetNamedSecurityInfo, LocalFree");
+	mono_error_set_pending_exception (&mono_error);
+
+	SetLastError (ERROR_NOT_SUPPORTED);
+
+	return FALSE;
+}
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
+static gboolean
 ProtectMachine (gunichar2 *path)
 {
 	PSID pEveryoneSid = GetEveryoneSid ();
@@ -767,7 +1029,26 @@ ProtectMachine (gunichar2 *path)
 	return (retval == ERROR_SUCCESS);
 }
 
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
+static gboolean
+ProtectMachine (gunichar2 *path)
+{
+	MonoError mono_error;
+	mono_error_init (&mono_error);
+
+	g_unsupported_api ("BuildTrusteeWithSid, SetEntriesInAcl, SetNamedSecurityInfo, LocalFree, FreeSid");
+
+	mono_error_set_not_supported (&mono_error, G_UNSUPPORTED_API, "BuildTrusteeWithSid, SetEntriesInAcl, SetNamedSecurityInfo, LocalFree, FreeSid");
+	mono_error_set_pending_exception (&mono_error);
+
+	SetLastError (ERROR_NOT_SUPPORTED);
+
+	return FALSE;
+}
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 static gboolean 
 ProtectUser (gunichar2 *path)
 {
@@ -804,9 +1085,28 @@ ProtectUser (gunichar2 *path)
 	return (retval == ERROR_SUCCESS);
 }
 
-#else
+#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
-static gboolean 
+static gboolean
+ProtectUser (gunichar2 *path)
+{
+	MonoError mono_error;
+	mono_error_init (&mono_error);
+
+	g_unsupported_api ("BuildTrusteeWithSid, SetEntriesInAcl, SetNamedSecurityInfo, LocalFree");
+
+	mono_error_set_not_supported (&mono_error, G_UNSUPPORTED_API, "BuildTrusteeWithSid, SetEntriesInAcl, SetNamedSecurityInfo, LocalFree");
+	mono_error_set_pending_exception (&mono_error);
+
+	SetLastError (ERROR_NOT_SUPPORTED);
+
+	return FALSE;
+}
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+
+#else /* HOST_WIN32 */
+
+static gboolean
 IsProtected (MonoString *path, gint32 protection) 
 {
 	gboolean result = FALSE;
@@ -822,7 +1122,7 @@ IsProtected (MonoString *path, gint32 protection)
 }
 
 
-static gboolean 
+static gboolean
 Protect (MonoString *path, gint32 file_mode, gint32 add_dir_mode)
 {
 	gboolean result = FALSE;
@@ -841,7 +1141,6 @@ Protect (MonoString *path, gint32 file_mode, gint32 add_dir_mode)
 }
 
 #endif /* not HOST_WIN32 */
-
 
 MonoBoolean
 ves_icall_Mono_Security_Cryptography_KeyPairPersistence_CanSecure (MonoString *root)
@@ -871,7 +1170,7 @@ ves_icall_Mono_Security_Cryptography_KeyPairPersistence_IsMachineProtected (Mono
 #else
 	ret = IsProtected (path, (S_IWGRP | S_IWOTH));
 #endif
-	return ret;
+	return (MonoBoolean)ret;
 }
 
 
@@ -886,7 +1185,7 @@ ves_icall_Mono_Security_Cryptography_KeyPairPersistence_IsUserProtected (MonoStr
 #else
 	ret = IsProtected (path, (S_IRGRP | S_IWGRP | S_IXGRP | S_IROTH | S_IWOTH | S_IXOTH));
 #endif
-	return ret;
+	return (MonoBoolean)ret;
 }
 
 
@@ -901,7 +1200,7 @@ ves_icall_Mono_Security_Cryptography_KeyPairPersistence_ProtectMachine (MonoStri
 #else
 	ret = Protect (path, (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH), (S_IXUSR | S_IXGRP | S_IXOTH));
 #endif
-	return ret;
+	return (MonoBoolean)ret;
 }
 
 
@@ -916,7 +1215,7 @@ ves_icall_Mono_Security_Cryptography_KeyPairPersistence_ProtectUser (MonoString 
 #else
 	ret = Protect (path, (S_IRUSR | S_IWUSR), S_IXUSR);
 #endif
-	return ret;
+	return (MonoBoolean)ret;
 }
 
 
@@ -930,7 +1229,7 @@ MonoBoolean
 ves_icall_System_Security_Policy_Evidence_IsAuthenticodePresent (MonoReflectionAssembly *refass)
 {
 	if (refass && refass->assembly && refass->assembly->image) {
-		return mono_image_has_authenticode_entry (refass->assembly->image);
+		return (MonoBoolean)mono_image_has_authenticode_entry (refass->assembly->image);
 	}
 	return FALSE;
 }
