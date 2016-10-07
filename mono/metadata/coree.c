@@ -28,6 +28,7 @@
 #include "threads.h"
 #include "environment.h"
 #include "coree.h"
+#include "coree-internals.h"
 
 #if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 #include <shellapi.h>
@@ -137,14 +138,6 @@ BOOL STDMETHODCALLTYPE _CorDllMain(HINSTANCE hInst, DWORD dwReason, LPVOID lpRes
 
 	return TRUE;
 }
-
-#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
-
-BOOL STDMETHODCALLTYPE _CorDllMain(HINSTANCE hInst, DWORD dwReason, LPVOID lpReserved)
-{
-	g_unsupported_api ("_CorDllMain");
-	return FALSE;
-}
 #endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 /* Called by ntdll.dll reagardless of entry point after _CorValidateImage. */
@@ -219,14 +212,6 @@ __int32 STDMETHODCALLTYPE _CorExeMain(void)
 
 	/* return does not terminate the process. */
 	ExitProcess (mono_environment_exitcode_get ());
-}
-
-#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
-
-__int32 STDMETHODCALLTYPE _CorExeMain(void)
-{
-	g_unsupported_api ("_CorExeMain");
-	ExitProcess (EXIT_FAILURE);
 }
 #endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
@@ -408,14 +393,6 @@ STDAPI _CorValidateImage(PVOID *ImageBase, LPCWSTR FileName)
 
 	return STATUS_SUCCESS;
 }
-
-#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
-
-STDAPI _CorValidateImage(PVOID *ImageBase, LPCWSTR FileName)
-{
-	g_unsupported_api ("_CorValidateImage");
-	return E_UNEXPECTED;
-}
 #endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 /* Called by ntdll.dll. */
@@ -513,14 +490,6 @@ CloseMap:
 	CloseHandle(MapHandle);
 CloseFile:
 	CloseHandle(FileHandle);
-	return NULL;
-}
-
-#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
-
-HMODULE WINAPI MonoLoadImage(LPCWSTR FileName)
-{
-	g_unsupported_api ("MonoLoadImage");
 	return NULL;
 }
 #endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
@@ -879,8 +848,8 @@ STDAPI MonoFixupExe(HMODULE ModuleHandle)
 }
 
 #if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
-static void
-mono_set_act_ctx (const char* file_name)
+void
+mono_coree_set_act_ctx (const char* file_name)
 {
 	typedef HANDLE (WINAPI* CREATEACTCTXW_PROC) (PCACTCTXW pActCtx);
 	typedef BOOL (WINAPI* ACTIVATEACTCTX_PROC) (HANDLE hActCtx, ULONG_PTR* lpCookie);
@@ -939,17 +908,6 @@ mono_set_act_ctx (const char* file_name)
 	if (handle != INVALID_HANDLE_VALUE)
 		ActivateActCtx_proc (handle, &cookie);
 }
-
-#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
-
-static void
-mono_set_act_ctx (const char *file_name)
-{
-	g_unsupported_api ("CreateActCtx, ActivateActCtx");
-	SetLastError (ERROR_NOT_SUPPORTED);
-
-	return;
-}
 #endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 void
@@ -964,7 +922,7 @@ mono_load_coree (const char* exe_file_name)
 		return;
 
 	if (!init_from_coree && exe_file_name)
-		mono_set_act_ctx (exe_file_name);
+		mono_coree_set_act_ctx (exe_file_name);
 
 	/* ntdll.dll loads mscoree.dll from the system32 directory. */
 	required_size = GetSystemDirectory (NULL, 0);

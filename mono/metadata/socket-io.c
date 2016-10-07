@@ -1440,22 +1440,6 @@ ves_icall_System_Net_Sockets_Socket_Disconnect_internal (SOCKET sock, MonoBoolea
 	if (interrupted)
 		*werror = WSAEINTR;
 }
-
-#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT) */
-
-void
-ves_icall_System_Net_Sockets_Socket_Disconnect_internal (SOCKET sock, MonoBoolean reuse, gint32 *werror)
-{
-	*werror = 0;
-
-	LOGDEBUG (g_message("%s: disconnecting from socket %p (reuse %d)", __func__, sock, reuse));
-
-	if (reuse == TRUE) {
-		g_unsupported_api ("DisconnectEx, TransmitFile");
-		*werror = ERROR_NOT_SUPPORTED;
-		SetLastError (*werror);
-	}
-}
 #endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT) */
 
 gint32
@@ -2854,24 +2838,6 @@ ves_icall_System_Net_Sockets_Socket_SendFile_internal (SOCKET sock, MonoString *
 	MONO_EXIT_GC_SAFE;
 
 	return ret;
-}
-
-#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT) */
-
-gboolean
-ves_icall_System_Net_Sockets_Socket_SendFile_internal (SOCKET sock, MonoString *filename, MonoArray *pre_buffer, MonoArray *post_buffer, gint flags)
-{
-	MonoError mono_error;
-	mono_error_init (&mono_error);
-
-	g_unsupported_api ("TransferFile");
-
-	mono_error_set_not_supported (&mono_error, G_UNSUPPORTED_API, "TransferFile");
-	mono_error_set_pending_exception (&mono_error);
-
-	SetLastError (ERROR_NOT_SUPPORTED);
-
-	return FALSE;
 }
 #endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT) */
 

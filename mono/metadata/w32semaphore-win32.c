@@ -17,21 +17,19 @@ mono_w32semaphore_init (void)
 {
 }
 
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT)
 gpointer
 ves_icall_System_Threading_Semaphore_CreateSemaphore_internal (gint32 initialCount, gint32 maximumCount, MonoString *name, gint32 *error)
 { 
 	HANDLE sem;
 
-#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT)
 	sem = CreateSemaphore (NULL, initialCount, maximumCount, name ? mono_string_chars (name) : NULL);
-#else
-	sem = CreateSemaphoreEx (NULL, initialCount, maximumCount, name ? mono_string_chars (name) : NULL, 0, SEMAPHORE_ALL_ACCESS);
-#endif
 
 	*error = GetLastError ();
 
 	return sem;
 }
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT | HAVE_UWP_WINAPI_SUPPORT) */
 
 MonoBoolean
 ves_icall_System_Threading_Semaphore_ReleaseSemaphore_internal (gpointer handle, gint32 releaseCount, gint32 *prevcount)

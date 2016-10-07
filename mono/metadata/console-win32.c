@@ -49,25 +49,6 @@ ves_icall_System_ConsoleDriver_Isatty (HANDLE handle)
 	return GetConsoleMode (handle, &mode) != 0;
 }
 
-#else /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
-
-MonoBoolean
-ves_icall_System_ConsoleDriver_Isatty (HANDLE handle)
-{
-	MonoError mono_error;
-	mono_error_init (&mono_error);
-
-	g_unsupported_api ("GetConsoleMode");
-
-	mono_error_set_not_supported (&mono_error, G_UNSUPPORTED_API, "GetConsoleMode");
-	mono_error_set_pending_exception (&mono_error);
-
-	SetLastError (ERROR_NOT_SUPPORTED);
-
-	return FALSE;
-}
-#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
-
 MonoBoolean
 ves_icall_System_ConsoleDriver_SetEcho (MonoBoolean want_echo)
 {
@@ -91,3 +72,4 @@ ves_icall_System_ConsoleDriver_TtySetup (MonoString *keypad, MonoString *teardow
 {
 	return FALSE;
 }
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
