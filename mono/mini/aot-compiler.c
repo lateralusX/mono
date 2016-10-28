@@ -836,10 +836,31 @@ emit_code_bytes (MonoAotCompile *acfg, const guint8* buf, int size)
 #endif
 }
 
+#ifdef TARGET_ASM_MASM
+static inline void
+emit_unbox_trampoline_label (MonoAotCompile *acfg, const char *symbol)
+{
+	emit_local_symbol (acfg, symbol, "", TRUE);
+	emit_label (acfg, symbol);
+	return;
+}
+
+#else
+
+static inline void
+emit_unbox_trampoline_label (MonoAotCompile *acfg, const char *symbol)
+{
+	emit_label (acfg, symbol);
+	return;
+}
+#endif /* TARGET_ASM_MASM */
+
 /* ARCHITECTURE SPECIFIC CODE */
 
 #if defined(TARGET_X86) || defined(TARGET_AMD64) || defined(TARGET_ARM) || defined(TARGET_POWERPC) || defined(TARGET_ARM64)
+#ifndef HOST_WIN32
 #define EMIT_DWARF_INFO 1
+#endif
 #endif
 
 #ifdef TARGET_WIN32_MSVC
@@ -1315,6 +1336,434 @@ arm64_emit_gsharedvt_arg_trampoline (MonoAotCompile *acfg, int offset, int *tram
 
 #endif
 
+#ifdef TARGET_AMD64
+#ifdef TARGET_ASM_MASM
+inline static const char*
+amd64_get_asm_regname (int reg_id)
+{
+	const char * reg_name = mono_arch_regname (reg_id);
+	return (reg_name != NULL && reg_name[0] == '%') ? ++reg_name : reg_name;
+}
+
+static void
+amd64_emit_load_table_offset_into_reg (MonoAotCompile *acfg, const char *table, int dreg, int offset, int *code_size)
+{
+	assert (acfg);
+	assert (acfg->fp);
+	assert (table);
+	assert (dreg >= AMD64_RAX && dreg <= AMD64_RIP);
+
+	emit_unset_mode (acfg);
+
+	// MASM will resolve the symbol + offset using relative addressing.
+	fprintf (acfg->fp, "\tlea %s, %s+0%XH\n", amd64_get_asm_regname (dreg), table, offset);
+	if (code_size != NULL)
+		*code_size = 7;
+	return;
+}
+
+static void
+amd64_emit_load_table_offset (MonoAotCompile *acfg, const char *table, guint8 *code, int offset, int *code_size)
+{
+	int dreg;
+	int rex_r;
+
+	assert (acfg);
+	assert (table);
+	assert (code);
+
+	/* Decode reg, see amd64_mov_reg_membase () */
+	rex_r = code [0] & AMD64_REX_R;
+	g_assert (code [0] == 0x49 + rex_r);
+	g_assert (code [1] == 0x8b);
+	dreg = ((code [2] >> 3) & 0x7) + (rex_r ? 8 : 0);
+
+	amd64_emit_load_table_offset_into_reg (acfg, table, dreg, offset, code_size);
+	return;
+}
+
+static void
+amd64_emit_jump_table_offset (MonoAotCompile *acfg, const char *table, int offset, int *code_size)
+{
+	assert (acfg);
+	assert (acfg->fp);
+	assert (table);
+
+	emit_unset_mode (acfg);
+
+	// MASM will resolve the symbol + offset using relative addressing.
+	fprintf (acfg->fp, "\tjmp QWORD PTR [%s+0%XH]\n", table, offset);
+	if (code_size != NULL)
+		*code_size = 6;
+	return;
+}
+
+static void
+amd64_emit_call_table_offset (MonoAotCompile *acfg, const char *table, int offset, int *code_size)
+{
+	assert (acfg);
+	assert (acfg->fp);
+	assert (table);
+
+	emit_unset_mode (acfg);
+
+	// MASM will resolve the symbol + offset using relative addressing.
+	fprintf (acfg->fp, "\tcall QWORD PTR [%s+0%XH]\n", table, offset);
+	if (code_size != NULL)
+		*code_size = 6;
+	return;
+}
+
+static void
+amd64_emit_jump_symbol_offset (MonoAotCompile *acfg, const char *symbol, int offset, int *code_size)
+{
+	assert (acfg);
+	assert (acfg->fp);
+	assert (symbol);
+
+	emit_unset_mode (acfg);
+	if (offset != 0)
+		fprintf (acfg->fp, "\tjmp QWORD PTR [%s+0%xH]\n", symbol, offset);
+	else
+		fprintf (acfg->fp, "\tjmp QWORD PTR [%s]\n", symbol);
+	if (code_size != NULL)
+		*code_size = 6;
+	return;
+}
+
+static void
+amd64_emit_jump_reg_offset (MonoAotCompile *acfg, int dreg, int offset, int *code_size)
+{
+	assert (acfg);
+	assert (acfg->fp);
+	assert (dreg >= AMD64_RAX && dreg <= AMD64_RIP);
+
+	emit_unset_mode (acfg);
+	if (offset != 0)
+		fprintf (acfg->fp, "\tjmp QWORD PTR [%s+0%xH]\n", amd64_get_asm_regname (dreg), offset);
+	else
+		fprintf (acfg->fp, "\tjmp QWORD PTR [%s]\n", amd64_get_asm_regname (dreg));
+	if (code_size != NULL)
+		*code_size = 3;
+	return;
+}
+
+static void
+amd64_emit_direct_jump_symbol_offset (MonoAotCompile *acfg, const char *symbol, int offset, int *code_size)
+{
+	assert (acfg);
+	assert (acfg->fp);
+	assert (symbol);
+
+	emit_unset_mode (acfg);
+	if (offset != 0)
+		fprintf (acfg->fp, "\tjmp %s+0%xH\n", symbol, offset);
+	else
+		fprintf (acfg->fp, "\tjmp %s\n", symbol);
+	if (code_size != NULL)
+		*code_size = 5;
+	return;
+}
+
+static void
+amd64_emit_direct_jump_reg_offset (MonoAotCompile *acfg, int dreg, int offset, int *code_size)
+{
+	assert (acfg);
+	assert (acfg->fp);
+	assert (dreg >= AMD64_RAX && dreg <= AMD64_RIP);
+
+	emit_unset_mode (acfg);
+	if (offset != 0)
+		fprintf (acfg->fp, "\tjmp %s+0%xH\n", amd64_get_asm_regname (dreg), offset);
+	else
+		fprintf (acfg->fp, "\tjmp %s\n", amd64_get_asm_regname (dreg));
+	if (code_size != NULL)
+		*code_size = 3;
+	return;
+}
+
+static void
+amd64_emit_direct_call_symbol_offset (MonoAotCompile *acfg, const char *symbol, int offset, int *code_size)
+{
+	assert (acfg);
+	assert (acfg->fp);
+	assert (symbol);
+
+	emit_unset_mode (acfg);
+	if (offset != 0)
+		fprintf (acfg->fp, "\tcall %s+0%xH\n", symbol, offset);
+	else
+		fprintf (acfg->fp, "\tcall %s\n", symbol);
+	if (code_size != NULL)
+		*code_size = 5;
+	return;
+}
+
+#else /* TARGET_ASM_MASM */
+
+inline static const char*
+amd64_get_asm_regname (int reg_id)
+{
+	return mono_arch_regname (reg_id);
+}
+
+static void
+amd64_emit_load_table_offset_into_reg (MonoAotCompile *acfg, const char *table, int dreg, int offset, int *code_size)
+{
+	assert (acfg);
+	assert (acfg->fp);
+	assert (table);
+	assert (dreg >= AMD64_RAX && dreg <= AMD64_RIP);
+	
+	emit_unset_mode (acfg);
+	fprintf (acfg->fp, "\tmov %s+%d(%%rip), %s\n", table, (unsigned int) offset, mono_arch_regname (dreg));
+	if (code_size != NULL)
+		*code_size = 7;
+	return;
+}
+
+/* mov <OFFSET>(%rip), MONO_ARCH_IMT_SCRATCH_REG */
+//amd64_emit_rex (mov_buf_ptr, sizeof(gpointer), MONO_ARCH_IMT_SCRATCH_REG, 0, AMD64_RIP);
+//*(mov_buf_ptr)++ = (unsigned char)0x8b; /* mov opcode */
+//x86_address_byte (mov_buf_ptr, 0, MONO_ARCH_IMT_SCRATCH_REG & 0x7, 5);
+//emit_bytes (acfg, mov_buf, mov_buf_ptr - mov_buf);
+//emit_symbol_diff (acfg, acfg->got_symbol, ".", (offset * sizeof (gpointer)) - 4);
+
+static void
+amd64_emit_load_table_offset (MonoAotCompile *acfg, const char *table, guint8 *code, int offset, int *code_size)
+{
+	assert (acfg);
+	assert (table);
+	assert (code);
+
+	emit_bytes (acfg, code, mono_arch_get_patch_offset (code));
+	emit_symbol_diff (acfg, table, ".", offset - 4);
+	if (code_size != NULL)
+		*code_size = mono_arch_get_patch_offset (code) + 4;
+	return;
+}
+
+static void
+amd64_emit_jump_table_offset (MonoAotCompile *acfg, const char *table, int offset, int *code_size)
+{
+	assert (acfg);
+	assert (acfg->fp);
+	assert (table);
+
+	emit_unset_mode (acfg);
+	fprintf (acfg->fp, "\tjmp *%s+%d(%%rip)\n", table, offset);
+	if (code_size != NULL)
+		*code_size = 6;
+	return;
+}
+
+static void
+amd64_emit_call_table_offset (MonoAotCompile *acfg, const char *table, int offset, int *code_size)
+{
+	assert (acfg);
+	assert (acfg->fp);
+	assert (table);
+
+	emit_byte (acfg, '\x41');
+	emit_byte (acfg, '\xff');
+	emit_byte (acfg, '\x15');
+	emit_symbol_diff (acfg, table, ".", offset - 4);
+	emit_zero_bytes (acfg, 1);
+
+	if (code_size != NULL)
+		*code_size = 8;
+	return;
+}
+
+static void
+amd64_emit_jump_symbol_offset (MonoAotCompile *acfg, const char *symbol, int offset, int *code_size)
+{
+	assert (acfg);
+	assert (acfg->fp);
+	assert (symbol);
+	assert (offset == 0);
+
+	emit_unset_mode (acfg);
+	fprintf (acfg->fp, "\tjmp *%s\n", symbol);
+	if (code_size != NULL)
+		*code_size = 6;
+	return;
+}
+
+static void
+amd64_emit_jump_reg_offset (MonoAotCompile *acfg, int dreg, int offset, int *code_size)
+{
+	assert (acfg);
+	assert (acfg->fp);
+	assert (dreg >= AMD64_RAX && dreg <= AMD64_RIP);
+	assert (offset == 0);
+
+	emit_unset_mode (acfg);
+	fprintf (acfg->fp, "\tjmp *%s\n", amd64_get_asm_regname (dreg));
+	if (code_size != NULL)
+		*code_size = 3;
+	return;
+}
+
+static void
+amd64_emit_direct_jump_symbol_offset (MonoAotCompile *acfg, const char *symbol, int offset, int *code_size)
+{
+	assert (acfg);
+	assert (symbol);
+
+	emit_byte (acfg, '\xe9');
+	emit_symbol_diff (acfg, symbol, ".", offset - 4);
+	if (code_size != NULL)
+		*code_size = 5;
+	return;
+}
+
+static void
+amd64_emit_direct_jump_reg_offset (MonoAotCompile *acfg, int dreg, int offset, int *code_size)
+{
+	assert (acfg);
+	assert (acfg->fp);
+	assert (dreg >= AMD64_RAX && dreg <= AMD64_RIP);
+	assert (offset == 0);
+
+	emit_unset_mode (acfg);
+	fprintf (acfg->fp, "\tjmp %s\n", amd64_get_asm_regname (dreg));
+	if (code_size != NULL)
+		*code_size = 3;
+	return;
+}
+
+static void
+amd64_emit_direct_call_symbol_offset (MonoAotCompile *acfg, const char *symbol, int offset, int *code_size)
+{
+	assert (acfg);
+	assert (acfg->fp);
+	assert (symbol);
+	assert (offset == 0);
+
+	emit_unset_mode (acfg);
+	fprintf (acfg->fp, "\tcall %s\n", symbol);
+	if (code_size != NULL)
+		*code_size = 5;
+	return;
+}
+#endif /* TARGET_ASM_MASM */
+
+static inline void
+amd64_emit_load_table_slot_into_reg (MonoAotCompile *acfg, const char *table, int dreg, int slot, int *code_size)
+{
+	amd64_emit_load_table_offset_into_reg (acfg, table, dreg, (slot * sizeof (gpointer)), code_size);
+	return;
+}
+
+static inline void
+amd64_emit_load_got_slot_into_reg (MonoAotCompile *acfg, int dreg, int slot, int *code_size)
+{
+	assert (acfg);
+	assert (acfg->got_symbol);
+
+	amd64_emit_load_table_slot_into_reg (acfg, acfg->got_symbol, dreg, slot, code_size);
+	return;
+}
+
+static inline void
+amd64_emit_load_table_slot (MonoAotCompile *acfg, const char *table, guint8 *code, int slot, int *code_size)
+{
+	assert (acfg);
+	assert (acfg->got_symbol);
+
+	amd64_emit_load_table_offset (acfg, table, code, (slot * sizeof (gpointer)), code_size);
+	return;
+}
+
+static inline void
+amd64_emit_load_got_slot (MonoAotCompile *acfg, guint8 *code, int slot, int *code_size)
+{
+	amd64_emit_load_table_slot (acfg, acfg->got_symbol, code, slot, code_size);
+	return;
+}
+
+static inline void
+amd64_emit_jump_table_slot (MonoAotCompile *acfg, const char *table, int slot, int *code_size)
+{
+	amd64_emit_jump_table_offset (acfg, table, (slot * sizeof (gpointer)), code_size);
+	return;
+}
+
+static inline void
+amd64_emit_jump_got_slot (MonoAotCompile *acfg, int slot, int *code_size)
+{
+	assert (acfg);
+	assert (acfg->got_symbol);
+
+	amd64_emit_jump_table_slot (acfg, acfg->got_symbol, slot, code_size);
+	return;
+}
+
+static inline void
+amd64_emit_call_table_slot (MonoAotCompile *acfg, const char *table, int slot, int *code_size)
+{
+	amd64_emit_call_table_offset (acfg, table, (slot * sizeof (gpointer)), code_size);
+	return;
+}
+
+static inline void
+amd64_emit_call_got_slot (MonoAotCompile *acfg, int slot, int *code_size)
+{
+	assert (acfg);
+	assert (acfg->got_symbol);
+
+	amd64_emit_call_table_slot (acfg, acfg->got_symbol, slot, code_size);
+	return;
+}
+
+static inline void
+amd64_emit_jump_reg (MonoAotCompile *acfg, int dreg, int *code_size)
+{
+	amd64_emit_jump_reg_offset (acfg, dreg, 0, code_size);
+	return;
+}
+
+static inline void
+amd64_emit_direct_jump_reg (MonoAotCompile *acfg, int dreg, int *code_size)
+{
+	amd64_emit_direct_jump_reg_offset (acfg, dreg, 0, code_size);
+	return;
+}
+
+static inline void
+amd64_emit_direct_jump_symbol (MonoAotCompile *acfg, const char *symbol, int *code_size)
+{
+	amd64_emit_direct_jump_symbol_offset (acfg, symbol, 0, code_size);
+}
+
+static inline void
+amd64_emit_jump_symbol(MonoAotCompile *acfg, const char *symbol, int *code_size)
+{
+	amd64_emit_jump_symbol_offset (acfg, symbol, 0, code_size);
+}
+
+static inline void
+amd64_emit_direct_call_symbol (MonoAotCompile *acfg, const char *symbol, int *code_size)
+{
+	amd64_emit_direct_call_symbol_offset (acfg, symbol, 0, code_size);
+}
+
+static inline void
+amd64_emit_zero_pad_bytes (MonoAotCompile *acfg, int current_code_size, int expected_code_size, int *code_size)
+{
+	assert (acfg);
+	g_assert (expected_code_size >= current_code_size);
+
+	int zero_byte_pad_size = expected_code_size - current_code_size;
+	if (zero_byte_pad_size > 0) {
+		emit_zero_bytes (acfg, zero_byte_pad_size);
+		*code_size = current_code_size + zero_byte_pad_size;
+	}
+
+}
+#endif /* TARGET_AMD64 */
+
 #ifdef MONO_ARCH_AOT_SUPPORTED
 /*
  * arch_emit_direct_call:
@@ -1325,11 +1774,15 @@ arm64_emit_gsharedvt_arg_trampoline (MonoAotCompile *acfg, int offset, int *tram
 static void
 arch_emit_direct_call (MonoAotCompile *acfg, const char *target, gboolean external, gboolean thumb, MonoJumpInfo *ji, int *call_size)
 {
-#if defined(TARGET_X86) || defined(TARGET_AMD64)
+#if defined(TARGET_X86)
 	/* Need to make sure this is exactly 5 bytes long */
 	emit_unset_mode (acfg);
 	fprintf (acfg->fp, "call %s\n", target);
 	*call_size = 5;
+#elif defined(TARGET_AMD64)
+	/* Need to make sure this is exactly 5 bytes long */
+	amd64_emit_direct_call_symbol (acfg, target, call_size);
+	g_assert (*call_size == 5);
 #elif defined(TARGET_ARM)
 	emit_unset_mode (acfg);
 	if (thumb)
@@ -1448,9 +1901,10 @@ arch_emit_got_access (MonoAotCompile *acfg, const char *got_symbol, guint8 *code
 		fprintf (acfg->fp, "mov %s+%d(%%rip), %s\n", got_symbol, (unsigned int) ((got_slot * sizeof (gpointer))), mono_arch_regname (dreg));
 		*code_size = 7;
 	} else {
-		emit_bytes (acfg, code, mono_arch_get_patch_offset (code));
-		emit_symbol_diff (acfg, got_symbol, ".", (unsigned int) ((got_slot * sizeof (gpointer)) - 4));
-		*code_size = mono_arch_get_patch_offset (code) + 4;
+		amd64_emit_load_table_slot (acfg, got_symbol, code, got_slot, code_size);
+		//emit_bytes (acfg, code, mono_arch_get_patch_offset (code));
+		//emit_symbol_diff (acfg, got_symbol, ".", (unsigned int) ((got_slot * sizeof (gpointer)) - 4));
+		//*code_size = mono_arch_get_patch_offset (code) + 4;
 	}
 #elif defined(TARGET_X86)
 	emit_bytes (acfg, code, mono_arch_get_patch_offset (code));
@@ -1534,11 +1988,14 @@ arch_emit_plt_entry (MonoAotCompile *acfg, const char *got_symbol, int offset, i
 		/* Used by mono_aot_get_plt_info_offset */
 		emit_int32 (acfg, info_offset);
 #elif defined(TARGET_AMD64)
-		emit_unset_mode (acfg);
-		fprintf (acfg->fp, "jmp *%s+%d(%%rip)\n", got_symbol, offset);
+		//emit_unset_mode (acfg);
+		int code_size = 0;
+		amd64_emit_jump_table_offset (acfg, got_symbol, offset, &code_size);
+		//fprintf (acfg->fp, "jmp *%s+%d(%%rip)\n", got_symbol, offset);
 		/* Used by mono_aot_get_plt_info_offset */
 		emit_int32 (acfg, info_offset);
-		acfg->stats.plt_size += 10;
+		//acfg->stats.plt_size += 10;
+		acfg->stats.plt_size += code_size + 4;
 #elif defined(TARGET_ARM)
 		guint8 buf [256];
 		guint8 *code;
@@ -1886,11 +2343,15 @@ arch_emit_specific_trampoline (MonoAotCompile *acfg, int offset, int *tramp_size
 		fprintf (acfg->fp, "call *%s+%d(%%rip)\n", acfg->got_symbol, (int)(offset * sizeof (gpointer)));
 		emit_zero_bytes (acfg, 2);
 	} else {
-		emit_byte (acfg, '\x41');
+		/*emit_byte (acfg, '\x41');
 		emit_byte (acfg, '\xff');
 		emit_byte (acfg, '\x15');
 		emit_symbol_diff (acfg, acfg->got_symbol, ".", (offset * sizeof (gpointer)) - 4);
-		emit_zero_bytes (acfg, 1);
+		emit_zero_bytes (acfg, 1);*/
+		int code_size = 0;
+		amd64_emit_call_got_slot (acfg, offset, &code_size);
+		amd64_emit_zero_pad_bytes (acfg, code_size, *tramp_size, &code_size);
+		g_assert (code_size == *tramp_size);
 	}
 #elif defined(TARGET_ARM)
 	guint8 buf [128];
@@ -2006,8 +2467,9 @@ arch_emit_unbox_trampoline (MonoAotCompile *acfg, MonoCompile *cfg, MonoMethod *
 		emit_unset_mode (acfg);
 		fprintf (acfg->fp, "jmp %s\n", call_target);
 	} else {
-		emit_byte (acfg, '\xe9');
-		emit_symbol_diff (acfg, call_target, ".", -4);
+		//emit_byte (acfg, '\xe9');
+		//emit_symbol_diff (acfg, call_target, ".", -4);
+		amd64_emit_direct_jump_symbol (acfg, call_target, NULL);
 	}
 #elif defined(TARGET_X86)
 	guint8 buf [32];
@@ -2071,24 +2533,32 @@ static void
 arch_emit_static_rgctx_trampoline (MonoAotCompile *acfg, int offset, int *tramp_size)
 {
 #if defined(TARGET_AMD64)
-	/* This should be exactly 13 bytes long */
-	*tramp_size = 13;
-
 	if (acfg->llvm) {
 		emit_unset_mode (acfg);
 		fprintf (acfg->fp, "mov %s+%d(%%rip), %%r10\n", acfg->got_symbol, (int)(offset * sizeof (gpointer)));
 		fprintf (acfg->fp, "jmp *%s+%d(%%rip)\n", acfg->got_symbol, (int)((offset + 1) * sizeof (gpointer)));
+
+		/* This should be exactly 13 bytes long */
+		*tramp_size = 13;
 	} else {
 		/* mov <OFFSET>(%rip), %r10 */
-		emit_byte (acfg, '\x4d');
-		emit_byte (acfg, '\x8b');
-		emit_byte (acfg, '\x15');
-		emit_symbol_diff (acfg, acfg->got_symbol, ".", (offset * sizeof (gpointer)) - 4);
+		//emit_byte (acfg, '\x4d');
+		//emit_byte (acfg, '\x8b');
+		//emit_byte (acfg, '\x15');
+		//emit_symbol_diff (acfg, acfg->got_symbol, ".", (offset * sizeof (gpointer)) - 4);
+		int code_size = *tramp_size = 0;
+		amd64_emit_load_got_slot_into_reg (acfg, AMD64_R10, offset, &code_size);
+		*tramp_size += code_size;
 
 		/* jmp *<offset>(%rip) */
-		emit_byte (acfg, '\xff');
-		emit_byte (acfg, '\x25');
-		emit_symbol_diff (acfg, acfg->got_symbol, ".", ((offset + 1) * sizeof (gpointer)) - 4);
+		//emit_byte (acfg, '\xff');
+		//emit_byte (acfg, '\x25');
+		//emit_symbol_diff (acfg, acfg->got_symbol, ".", ((offset + 1) * sizeof (gpointer)) - 4);
+		amd64_emit_jump_got_slot (acfg, offset + 1, &code_size);
+		*tramp_size += code_size;
+
+		/* This should be exactly 13 bytes long */
+		g_assert (*tramp_size == 13);
 	}
 #elif defined(TARGET_ARM)
 	guint8 buf [128];
@@ -2207,6 +2677,11 @@ arch_emit_imt_trampoline (MonoAotCompile *acfg, int offset, int *tramp_size)
 	if (acfg->llvm) {
 		emit_unset_mode (acfg);
 		fprintf (acfg->fp, "mov %s+%d(%%rip), %s\n", acfg->got_symbol, (int)(offset * sizeof (gpointer)), mono_arch_regname (MONO_ARCH_IMT_SCRATCH_REG));
+	} else {
+		int code_size = 0;
+		amd64_emit_load_got_slot_into_reg (acfg, MONO_ARCH_IMT_SCRATCH_REG, offset,  &code_size);
+		amd64_emit_zero_pad_bytes (acfg, code_size, kSizeOfMove, &code_size);
+		g_assert (kSizeOfMove == code_size);
 	}
 
 	labels [0] = code;
@@ -2243,14 +2718,14 @@ arch_emit_imt_trampoline (MonoAotCompile *acfg, int offset, int *tramp_size)
 	mono_amd64_patch (labels [3], code);
 	x86_breakpoint (code);
 
-	if (!acfg->llvm) {
-		/* mov <OFFSET>(%rip), MONO_ARCH_IMT_SCRATCH_REG */
-		amd64_emit_rex (mov_buf_ptr, sizeof(gpointer), MONO_ARCH_IMT_SCRATCH_REG, 0, AMD64_RIP);
-		*(mov_buf_ptr)++ = (unsigned char)0x8b; /* mov opcode */
-		x86_address_byte (mov_buf_ptr, 0, MONO_ARCH_IMT_SCRATCH_REG & 0x7, 5);
-		emit_bytes (acfg, mov_buf, mov_buf_ptr - mov_buf);
-		emit_symbol_diff (acfg, acfg->got_symbol, ".", (offset * sizeof (gpointer)) - 4);
-	}
+	//if (!acfg->llvm) {
+	//	/* mov <OFFSET>(%rip), MONO_ARCH_IMT_SCRATCH_REG */
+	//	amd64_emit_rex (mov_buf_ptr, sizeof(gpointer), MONO_ARCH_IMT_SCRATCH_REG, 0, AMD64_RIP);
+	//	*(mov_buf_ptr)++ = (unsigned char)0x8b; /* mov opcode */
+	//	x86_address_byte (mov_buf_ptr, 0, MONO_ARCH_IMT_SCRATCH_REG & 0x7, 5);
+	//	emit_bytes (acfg, mov_buf, mov_buf_ptr - mov_buf);
+	//	emit_symbol_diff (acfg, acfg->got_symbol, ".", (offset * sizeof (gpointer)) - 4);
+	//}
 	emit_bytes (acfg, buf, code - buf);
 
 	*tramp_size = code - buf + kSizeOfMove;
@@ -2429,22 +2904,6 @@ arch_emit_imt_trampoline (MonoAotCompile *acfg, int offset, int *tramp_size)
 #endif
 }
 
-
-#if defined (TARGET_AMD64)
-
-static void
-amd64_emit_load_got_slot (MonoAotCompile *acfg, int dreg, int got_slot)
-{
-
-	g_assert (acfg->fp);
-	emit_unset_mode (acfg);
-
-	fprintf (acfg->fp, "mov %s+%d(%%rip), %s\n", acfg->got_symbol, (unsigned int) ((got_slot * sizeof (gpointer))), mono_arch_regname (dreg));
-}
-
-#endif
-
-
 /*
  * arch_emit_gsharedvt_arg_trampoline:
  *
@@ -2504,12 +2963,19 @@ arch_emit_gsharedvt_arg_trampoline (MonoAotCompile *acfg, int offset, int *tramp
 	arm64_emit_gsharedvt_arg_trampoline (acfg, offset, tramp_size);
 #elif defined (TARGET_AMD64)
 
-	amd64_emit_load_got_slot (acfg, AMD64_RAX, offset);
-	amd64_emit_load_got_slot (acfg, MONO_ARCH_IMT_SCRATCH_REG, offset + 1);
 	g_assert (AMD64_R11 == MONO_ARCH_IMT_SCRATCH_REG);
-	fprintf (acfg->fp, "jmp *%%r11\n");
+	int code_size = *tramp_size = 0;
+	amd64_emit_load_got_slot_into_reg (acfg, AMD64_RAX, offset, &code_size);
+	*tramp_size += code_size;
 
-	*tramp_size = 0x11;
+	amd64_emit_load_got_slot_into_reg (acfg, MONO_ARCH_IMT_SCRATCH_REG, offset + 1, &code_size);
+	*tramp_size += code_size;
+
+	amd64_emit_jump_reg (acfg, MONO_ARCH_IMT_SCRATCH_REG, &code_size);
+	*tramp_size += code_size;
+	//fprintf (acfg->fp, "jmp *%%r11\n");
+
+	g_assert (*tramp_size == 0x11);
 #else
 	g_assert_not_reached ();
 #endif
@@ -5586,8 +6052,10 @@ emit_method_code (MonoAotCompile *acfg, MonoCompile *cfg)
 	
 	if (acfg->global_symbols && acfg->need_no_dead_strip)
 		fprintf (acfg->fp, "	.no_dead_strip %s\n", cfg->asm_symbol);
-	
+
+#ifndef TARGET_ASM_MASM
 	emit_label (acfg, cfg->asm_symbol);
+#endif
 
 	if (acfg->aot_opts.write_symbols && !acfg->global_symbols && !acfg->llvm) {
 		/* 
@@ -5611,6 +6079,10 @@ emit_method_code (MonoAotCompile *acfg, MonoCompile *cfg)
 		emit_global_inner (acfg, export_name, TRUE);
 		emit_label (acfg, export_name);
 	}
+
+#ifdef TARGET_ASM_MASM
+	emit_label (acfg, cfg->asm_symbol);
+#endif
 
 	if (cfg->verbose_level > 0)
 		g_print ("Method %s emitted as %s\n", mono_method_get_full_name (method), cfg->asm_symbol);
@@ -8423,8 +8895,7 @@ emit_code (MonoAotCompile *acfg)
 				fprintf (acfg->fp, "\n.thumb_func\n");
 			}
 
-			emit_label (acfg, symbol);
-
+			emit_unbox_trampoline_label (acfg, symbol);
 			arch_emit_unbox_trampoline (acfg, cfg, cfg->orig_method, cfg->asm_symbol);
 
 			if (acfg->thumb_mixed && cfg->compile_llvm)

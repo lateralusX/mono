@@ -151,6 +151,9 @@
     <ClCompile Include="..\mono\mini\tramp-x86-gsharedvt.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\mono\mini\image-writer-masm.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\mono\mini\abcremoval.h">
@@ -232,6 +235,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\mono\mini\mini-windows.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\mono\mini\image-writer-internals.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

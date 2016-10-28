@@ -36,6 +36,7 @@
 #endif
 
 #include "image-writer.h"
+#include "image-writer-internals.h"
 
 #ifndef HOST_WIN32
 #include <mono/utils/freebsd-elf32.h>
@@ -47,19 +48,6 @@
 #define TV_DECLARE(name) gint64 name
 #define TV_GETTIME(tv) tv = mono_100ns_ticks ()
 #define TV_ELAPSED(start,end) (((end) - (start)) / 10)
-
-/* 
- * The used assembler dialect
- * TARGET_ASM_APPLE == apple assembler on OSX
- * TARGET_ASM_GAS == GNU assembler
- */
-#if !defined(TARGET_ASM_APPLE) && !defined(TARGET_ASM_GAS)
-#if defined(TARGET_MACH) && !defined(__native_client_codegen__)
-#define TARGET_ASM_APPLE
-#else
-#define TARGET_ASM_GAS
-#endif
-#endif
 
 /*
  * Defines for the directives used by different assemblers
@@ -151,42 +139,6 @@ typedef struct _BinReloc BinReloc;
 typedef struct _BinSection BinSection;
 
 #endif
-
-/* emit mode */
-enum {
-	EMIT_NONE,
-	EMIT_BYTE,
-	EMIT_WORD,
-	EMIT_LONG
-};
-
-struct _MonoImageWriter {
-	MonoMemPool *mempool;
-	char *outfile;
-	gboolean use_bin_writer;
-	const char *current_section;
-	int current_subsection;
-	const char *section_stack [16];
-	int subsection_stack [16];
-	int stack_pos;
-	FILE *fp;
-	/* Bin writer */
-#ifdef USE_BIN_WRITER
-	BinSymbol *symbols;
-	BinSection *sections;
-	BinSection *cur_section;
-	BinReloc *relocations;
-	GHashTable *labels;
-	int num_relocs;
-	guint8 *out_buf;
-	int out_buf_size, out_buf_pos;
-#endif
-	/* Asm writer */
-	char *tmpfname;
-	int mode; /* emit mode */
-	int col_count; /* bytes emitted per .byte line */
-	int label_gen;
-};
 
 static G_GNUC_UNUSED int
 ilog2(register int value)
@@ -1669,7 +1621,8 @@ bin_writer_emit_writeout (MonoImageWriter *acfg)
 #endif /* USE_BIN_WRITER */
 
 /* ASM WRITER */
-
+/* MASM emitter functions defined in image-writer-internals.h and implemented in image-writer-masm.c */
+#ifndef TARGET_ASM_MASM
 static void
 asm_writer_emit_start (MonoImageWriter *acfg)
 {
@@ -2014,6 +1967,23 @@ asm_writer_emit_zero_bytes (MonoImageWriter *acfg, int num)
 	asm_writer_emit_unset_mode (acfg);
 	fprintf (acfg->fp, "\t%s %d\n", AS_SKIP_DIRECTIVE, num);
 }
+
+gboolean
+asm_writer_subsections_supported (MonoImageWriter *acfg)
+{
+#ifdef TARGET_ASM_APPLE
+	return acfg->use_bin_writer;
+#else
+	return TRUE;
+#endif
+}
+
+static inline const char *
+asm_writer_get_temp_label_prefix (MonoImageWriter *acfg)
+{
+	return AS_TEMP_LABEL_PREFIX;
+}
+#endif /* TARGET_ASM_MASM */
 
 /* EMIT FUNCTIONS */
 
@@ -2391,11 +2361,7 @@ mono_img_writer_destroy (MonoImageWriter *w)
 gboolean
 mono_img_writer_subsections_supported (MonoImageWriter *acfg)
 {
-#ifdef TARGET_ASM_APPLE
-	return acfg->use_bin_writer;
-#else
-	return TRUE;
-#endif
+	return asm_writer_subsections_supported (acfg);
 }
 
 FILE *
@@ -2407,5 +2373,5 @@ mono_img_writer_get_fp (MonoImageWriter *acfg)
 const char *
 mono_img_writer_get_temp_label_prefix (MonoImageWriter *acfg)
 {
-	return AS_TEMP_LABEL_PREFIX;
+	return asm_writer_get_temp_label_prefix (acfg);
 }

@@ -14,6 +14,23 @@
 
 #include "config.h"
 
+/* 
+ * The used assembler dialect
+ * TARGET_ASM_APPLE == apple assembler on OSX
+ * TARGET_ASM_GAS == GNU assembler
+ * TARGET_ASM_MASM == Microsoft assembler
+ */
+#if !defined(TARGET_ASM_APPLE) && !defined(TARGET_ASM_GAS)
+#if defined(TARGET_MACH) && !defined(__native_client_codegen__)
+#define TARGET_ASM_APPLE
+#elif _MSC_VER
+//#define TARGET_ASM_MASM
+#define TARGET_ASM_GAS
+#else
+#define TARGET_ASM_GAS
+#endif
+#endif
+
 #include <glib.h>
 #include <stdio.h>
 
