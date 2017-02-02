@@ -178,7 +178,8 @@ typedef struct MonoCompileArch {
 	gint32 async_point_count;
 	gpointer vret_addr_loc;
 #ifdef HOST_WIN32
-	gpointer	unwindinfo;
+	gpointer unwindinfo;
+	gboolean unwindinfo_max_fp_offset;
 #endif
 	gpointer seq_point_info_var;
 	gpointer ss_trigger_page_var;
@@ -478,18 +479,22 @@ mono_amd64_handler_block_trampoline_helper (void);
 
 #if defined(TARGET_WIN32) && !defined(DISABLE_JIT)
 
+#define MONO_UNWIND_MAX_FP_OFFSET (240 * 16)
+
 void mono_arch_unwindinfo_add_push_nonvol (gpointer* monoui, gpointer codebegin, gpointer nextip, guchar reg );
-void mono_arch_unwindinfo_add_set_fpreg (gpointer* monoui, gpointer codebegin, gpointer nextip, guchar reg );
+void mono_arch_unwindinfo_add_set_fpreg (gpointer* monoui, gpointer codebegin, gpointer nextip, guchar reg, gushort frameOffset );
 void mono_arch_unwindinfo_add_alloc_stack (gpointer* monoui, gpointer codebegin, gpointer nextip, guint size );
 guint mono_arch_unwindinfo_get_size (gpointer monoui);
 void mono_arch_unwindinfo_install_unwind_info (gpointer* monoui, gpointer code, guint code_size);
 
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 #define MONO_ARCH_HAVE_UNWIND_TABLE 1
 
 void mono_arch_code_chunk_new (void *chunk, int size);
 void mono_arch_code_chunk_destroy (void *chunk);
 #define MONO_ARCH_HAVE_CODE_CHUNK_TRACKING 1
-#endif
+#endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
+#endif /* TARGET_WIN32 */
 
 CallInfo* mono_arch_get_call_info (MonoMemPool *mp, MonoMethodSignature *sig);
 

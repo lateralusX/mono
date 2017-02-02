@@ -900,6 +900,18 @@ mono_arch_exceptions_init (void)
 
 #define MONO_MAX_UNWIND_CODES 22
 
+typedef enum _UNWIND_OP_CODES {
+    UWOP_PUSH_NONVOL = 0, /* info == register number */
+    UWOP_ALLOC_LARGE,     /* no info, alloc size in next 2 slots */
+    UWOP_ALLOC_SMALL,     /* info == size of allocation / 8 - 1 */
+    UWOP_SET_FPREG,       /* no info, FP = RSP + UNWIND_INFO.FPRegOffset*16 */
+    UWOP_SAVE_NONVOL,     /* info == register number, offset in next slot */
+    UWOP_SAVE_NONVOL_FAR, /* info == register number, offset in next 2 slots */
+    UWOP_SAVE_XMM128,     /* info == XMM reg number, offset in next slot */
+    UWOP_SAVE_XMM128_FAR, /* info == XMM reg number, offset in next 2 slots */
+    UWOP_PUSH_MACHFRAME   /* info == 0: no error-code, 1: error-code */
+} UNWIND_CODE_OPS;
+
 typedef union _UNWIND_CODE {
     struct {
         guchar CodeOffset;
@@ -916,19 +928,13 @@ typedef struct _UNWIND_INFO {
 	guchar CountOfCodes;
 	guchar FrameRegister : 4;
 	guchar FrameOffset   : 4;
-	/* custom size for mono allowing for mono allowing for*/
-	/*UWOP_PUSH_NONVOL ebp offset = 21*/
-	/*UWOP_ALLOC_LARGE : requires 2 or 3 offset = 20*/
-	/*UWOP_SET_FPREG : requires 2 offset = 17*/
-	/*UWOP_PUSH_NONVOL offset = 15-0*/
 	UNWIND_CODE UnwindCode[MONO_MAX_UNWIND_CODES]; 
-
-/*  	UNWIND_CODE MoreUnwindCode[((CountOfCodes + 1) & ~1) - 1];
- *   	union {
- *   	    OPTIONAL ULONG ExceptionHandler;
- *   	    OPTIONAL ULONG FunctionEntry;
- *   	};
- *   	OPTIONAL ULONG ExceptionData[]; */
+/*	UNWIND_CODE MoreUnwindCode[((CountOfCodes + 1) & ~1) - 1];
+ *	union {
+ *		OPTIONAL ULONG ExceptionHandler;
+ *		OPTIONAL ULONG FunctionEntry;
+ *	};
+ *	OPTIONAL ULONG ExceptionData[]; */
 } UNWIND_INFO, *PUNWIND_INFO;
 
 typedef struct
@@ -961,7 +967,7 @@ mono_arch_unwindinfo_add_push_nonvol (gpointer* monoui, gpointer codebegin, gpoi
 
 	codeindex = MONO_MAX_UNWIND_CODES - (++unwindinfo->unwindInfo.CountOfCodes);
 	unwindcode = &unwindinfo->unwindInfo.UnwindCode[codeindex];
-	unwindcode->UnwindOp = 0; /*UWOP_PUSH_NONVOL*/
+	unwindcode->UnwindOp = UWOP_PUSH_NONVOL;
 	unwindcode->CodeOffset = (((guchar*)nextip)-((guchar*)codebegin));
 	unwindcode->OpInfo = reg;
 
@@ -972,7 +978,7 @@ mono_arch_unwindinfo_add_push_nonvol (gpointer* monoui, gpointer codebegin, gpoi
 }
 
 void
-mono_arch_unwindinfo_add_set_fpreg (gpointer* monoui, gpointer codebegin, gpointer nextip, guchar reg )
+mono_arch_unwindinfo_add_set_fpreg (gpointer* monoui, gpointer codebegin, gpointer nextip, guchar reg, gushort frameOffset)
 {
 	PMonoUnwindInfo unwindinfo;
 	PUNWIND_CODE unwindcode;
@@ -985,15 +991,14 @@ mono_arch_unwindinfo_add_set_fpreg (gpointer* monoui, gpointer codebegin, gpoint
 	if (unwindinfo->unwindInfo.CountOfCodes + 1 >= MONO_MAX_UNWIND_CODES)
 		g_error ("Larger allocation needed for the unwind information.");
 
-	codeindex = MONO_MAX_UNWIND_CODES - (unwindinfo->unwindInfo.CountOfCodes += 2);
+	codeindex = MONO_MAX_UNWIND_CODES - (++unwindinfo->unwindInfo.CountOfCodes);
 	unwindcode = &unwindinfo->unwindInfo.UnwindCode[codeindex];
-	unwindcode->FrameOffset = 0; /*Assuming no frame pointer offset for mono*/
-	unwindcode++;
-	unwindcode->UnwindOp = 3; /*UWOP_SET_FPREG*/
+	unwindcode->UnwindOp = UWOP_SET_FPREG;
 	unwindcode->CodeOffset = (((guchar*)nextip)-((guchar*)codebegin));
-	unwindcode->OpInfo = reg;
 	
+	g_assert(frameOffset % 16 == 0);
 	unwindinfo->unwindInfo.FrameRegister = reg;
+	unwindinfo->unwindInfo.FrameOffset = frameOffset / 16;
 
 	if (unwindinfo->unwindInfo.SizeOfProlog >= unwindcode->CodeOffset)
 		g_error ("Adding unwind info in wrong order.");
@@ -1033,7 +1038,7 @@ mono_arch_unwindinfo_add_alloc_stack (gpointer* monoui, gpointer codebegin, gpoi
 		/*The size of the allocation is 
 		  (the number in the OpInfo member) times 8 plus 8*/
 		unwindcode->OpInfo = (size - 8)/8;
-		unwindcode->UnwindOp = 2; /*UWOP_ALLOC_SMALL*/
+		unwindcode->UnwindOp = UWOP_ALLOC_SMALL;
 	}
 	else {
 		if (codesneeded == 3) {
@@ -1051,7 +1056,7 @@ mono_arch_unwindinfo_add_alloc_stack (gpointer* monoui, gpointer codebegin, gpoi
 			unwindcode->OpInfo = 0;
 			
 		}
-		unwindcode->UnwindOp = 1; /*UWOP_ALLOC_LARGE*/
+		unwindcode->UnwindOp = UWOP_ALLOC_LARGE;
 	}
 
 	unwindcode->CodeOffset = (((guchar*)nextip)-((guchar*)codebegin));
@@ -1062,6 +1067,7 @@ mono_arch_unwindinfo_add_alloc_stack (gpointer* monoui, gpointer codebegin, gpoi
 	unwindinfo->unwindInfo.SizeOfProlog = unwindcode->CodeOffset;
 }
 
+#ifdef MONO_ARCH_HAVE_UNWIND_TABLE
 guint
 mono_arch_unwindinfo_get_size (gpointer monoui)
 {
@@ -1070,8 +1076,16 @@ mono_arch_unwindinfo_get_size (gpointer monoui)
 		return 0;
 	
 	unwindinfo = (MonoUnwindInfo*)monoui;
-	return (8 + sizeof (MonoUnwindInfo)) - 
-		(sizeof (UNWIND_CODE) * (MONO_MAX_UNWIND_CODES - unwindinfo->unwindInfo.CountOfCodes));
+
+	// Returned size will be used as the allocated size for unwind data trailing the memory used by compiled method.
+	// Windows x64 ABI have some requirements on the data written into this memory. Both the RUNTIME_FUNCTION
+	// and UNWIND_INFO struct needs to be DWORD aligend and the number of elements in unwind codes array
+	// should have an even number of entries, while the count stored in UNWIND_INFO struct should hold the real number of unwind codes.
+	// Adding extra bytes to the total size will make sure we can proparly align the RUNTIME_FUNCTION struct. Since our UNWIND_INFO
+	// follows RUNTIME_FUNCTION struct in memory, it will automaticaly be DWORD aligned as well. Also make sure to allocate room for a padding
+	// UNWIND_CODE, if needed.
+	return (sizeof (mgreg_t) + sizeof (MonoUnwindInfo)) -
+		(sizeof (UNWIND_CODE) * ((MONO_MAX_UNWIND_CODES - ((unwindinfo->unwindInfo.CountOfCodes + 1) & ~1))));
 }
 
 static PRUNTIME_FUNCTION
@@ -1094,6 +1108,10 @@ MONO_GET_RUNTIME_FUNCTION_CALLBACK ( DWORD64 ControlPc, IN PVOID Context )
 	targetinfo->runtimeFunction.EndAddress = pos - ((DWORD64)Context);
 	targetinfo->runtimeFunction.UnwindData = ((DWORD64)&targetinfo->unwindInfo) - ((DWORD64)Context);
 
+	//Location of RUNTIME_FUNCTION and UNWIND_INFO must be DWORD aligned.
+	g_assert (((size_t)(&targetinfo->runtimeFunction) % sizeof (DWORD)) == 0);
+	g_assert (((size_t)((guchar*)Context + targetinfo->runtimeFunction.UnwindData) % sizeof (DWORD)) == 0);
+
 	return &targetinfo->runtimeFunction;
 }
 
@@ -1108,7 +1126,7 @@ mono_arch_unwindinfo_install_unwind_info (gpointer* monoui, gpointer code, guint
 
 	unwindinfo = (MonoUnwindInfo*)*monoui;
 	targetlocation = (guint64)&(((guchar*)code)[code_size]);
-	targetinfo = (PMonoUnwindInfo) ALIGN_TO(targetlocation, 8);
+	targetinfo = (PMonoUnwindInfo) ALIGN_TO(targetlocation, sizeof (mgreg_t));
 
 	unwindinfo->runtimeFunction.EndAddress = code_size;
 	unwindinfo->runtimeFunction.UnwindData = ((guchar*)&targetinfo->unwindInfo) - ((guchar*)code);
@@ -1117,12 +1135,32 @@ mono_arch_unwindinfo_install_unwind_info (gpointer* monoui, gpointer code, guint
 	
 	codecount = unwindinfo->unwindInfo.CountOfCodes;
 	if (codecount) {
-		memcpy (&targetinfo->unwindInfo.UnwindCode[0], &unwindinfo->unwindInfo.UnwindCode[MONO_MAX_UNWIND_CODES-codecount], 
-			sizeof (UNWIND_CODE) * unwindinfo->unwindInfo.CountOfCodes);
+		memcpy (&targetinfo->unwindInfo.UnwindCode[0], &unwindinfo->unwindInfo.UnwindCode[MONO_MAX_UNWIND_CODES - codecount],
+			sizeof (UNWIND_CODE) * codecount);
 	}
 
 	g_free (unwindinfo);
 	*monoui = 0;
+
+
+	//Location of RUNTIME_FUNCTION and UNWIND_INFO must be DWORD aligned.
+	//g_assert (((size_t)(&targetinfo->runtimeFunction) % sizeof (DWORD)) == 0);
+	//g_assert (((size_t)((guchar*)code + targetinfo->runtimeFunction.UnwindData) % sizeof (DWORD)) == 0);
+
+	/*typedef PLIST_ENTRY (*RtlGetFunctionTableListHead)(void);
+	static RtlGetFunctionTableListHead dyn_list = NULL;
+	if (dyn_list == NULL)
+	{
+		HMODULE ntdll_lib = LoadLibrary (L"ntdll.dll");
+		dyn_list = (RtlGetFunctionTableListHead)GetProcAddress (ntdll_lib, "RtlGetFunctionTableListHead");
+		FreeLibrary (ntdll_lib);
+	}
+
+	PLIST_ENTRY data_list = dyn_list ();*/
+
+	//RtlInstallFunctionTableCallback (((DWORD64)code) | 0x3, (DWORD64)code, code_size, MONO_GET_RUNTIME_FUNCTION_CALLBACK, code, NULL);
+	//RtlAddFunctionTable(&targetinfo->runtimeFunction, 1, (DWORD64)code);
+	//RtlDeleteFunctionTable, works for both install and add, should be done when we delete unwind info.
 }
 
 void
@@ -1137,6 +1175,7 @@ void mono_arch_code_chunk_destroy (void *chunk)
 	BOOLEAN success = RtlDeleteFunctionTable ((PRUNTIME_FUNCTION)((DWORD64)chunk | 0x03));
 	g_assert (success);
 }
+#endif /* MONO_ARCH_HAVE_UNWIND_TABLE */
 
 #endif /* defined(TARGET_WIN32) !defined(DISABLE_JIT) */
 

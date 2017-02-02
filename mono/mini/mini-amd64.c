@@ -1363,6 +1363,19 @@ mono_arch_compute_omit_fp (MonoCompile *cfg)
 
 		locals_size += mono_type_size (ins->inst_vtype, &ialign);
 	}
+
+#if defined(TARGET_WIN32)
+	// Check size of locals to decide if we need an additional register for unwind_info.
+	// Windows unwind_info can max represent 240 * 16 byte offset between stack and frame pointer.
+	// Since we only can get a hint on local stack space at this point, leave room for fp offset
+	// increases due to other constructs. If we have restart the compile, assume it occured because
+	// unpredictable local size. Force use of additional register.
+	if (!cfg->arch.omit_fp) {
+		if (cfg->restart_method_compile || locals_size >= (MONO_UNWIND_MAX_FP_OFFSET / 2)) {
+			cfg->arch.unwindinfo_max_fp_offset = TRUE;
+		}
+	}
+#endif // (TARGET_WIN32)
 }
 
 GList *
@@ -1376,15 +1389,22 @@ mono_arch_get_global_int_regs (MonoCompile *cfg)
 		regs = g_list_prepend (regs, (gpointer)AMD64_RBP);
 
 	/* We use the callee saved registers for global allocation */
-	regs = g_list_prepend (regs, (gpointer)AMD64_RBX);
-	regs = g_list_prepend (regs, (gpointer)AMD64_R12);
-	regs = g_list_prepend (regs, (gpointer)AMD64_R13);
-	regs = g_list_prepend (regs, (gpointer)AMD64_R14);
-	regs = g_list_prepend (regs, (gpointer)AMD64_R15);
-#ifdef TARGET_WIN32
+#if defined(TARGET_WIN32)
 	regs = g_list_prepend (regs, (gpointer)AMD64_RDI);
 	regs = g_list_prepend (regs, (gpointer)AMD64_RSI);
+
+	// Reserve R13 if needed as extra OS unwind_info fp.
+	if (!cfg->arch.unwindinfo_max_fp_offset)
+		regs = g_list_prepend (regs, (gpointer)AMD64_R13);
+
+#else
+	regs = g_list_prepend (regs, (gpointer)AMD64_R13);
 #endif
+
+	regs = g_list_prepend (regs, (gpointer)AMD64_RBX);
+	regs = g_list_prepend (regs, (gpointer)AMD64_R12);
+	regs = g_list_prepend (regs, (gpointer)AMD64_R14);
+	regs = g_list_prepend (regs, (gpointer)AMD64_R15);
 
 	return regs;
 }
@@ -6476,6 +6496,16 @@ mono_arch_register_lowlevel_calls (void)
 {
 	/* The signature doesn't matter */
 	mono_register_jit_icall (mono_amd64_throw_exception, "mono_amd64_throw_exception", mono_create_icall_signature ("void"), TRUE);
+
+#if defined(TARGET_WIN32) || defined(HOST_WIN32)
+#if _MSC_VER
+	extern void __chkstk(void);
+	mono_register_jit_icall_full (__chkstk, "mono_chkstk_win64", NULL, TRUE, FALSE, "__chkstk");
+#else
+	extern void ___chkstk_ms(void);
+	mono_register_jit_icall_full (___chkstk_ms, "mono_chkstk_win64", NULL, TRUE, FALSE, "___chkstk_ms");
+#endif
+#endif
 }
 
 void
@@ -6544,6 +6574,117 @@ get_max_epilog_size (MonoCompile *cfg)
 } while (0)
 
 guint8 *
+mono_arch_emit_prolog_push_nonvol_win64 (MonoCompile *cfg, guint8 *code, int *cfa_offset_input)
+{
+	int cfa_offset = *cfa_offset_input;
+
+	if (!cfg->arch.omit_fp) {
+		amd64_push_reg (code, AMD64_RBP);
+		cfa_offset += 8;
+		mono_emit_unwind_op_def_cfa_offset (cfg, code, cfa_offset);
+		mono_emit_unwind_op_offset (cfg, code, AMD64_RBP, - cfa_offset);
+		async_exc_point (code);
+		mini_gc_set_slot_type_from_cfa (cfg, -cfa_offset, SLOT_NOREF);
+
+		mono_arch_unwindinfo_add_push_nonvol (&cfg->arch.unwindinfo, cfg->native_code, code, AMD64_RBP);
+
+		if (cfg->arch.unwindinfo_max_fp_offset)
+		{
+			amd64_push_reg (code, AMD64_R13);
+			cfa_offset += 8;
+
+			mono_emit_unwind_op_def_cfa_offset (cfg, code, cfa_offset);
+			mono_emit_unwind_op_offset (cfg, code, AMD64_R13, - cfa_offset);
+			async_exc_point (code);
+
+			mini_gc_set_slot_type_from_cfa (cfg, -cfa_offset, SLOT_NOREF);
+
+			mono_arch_unwindinfo_add_push_nonvol (&cfg->arch.unwindinfo, cfg->native_code, code, AMD64_R13);
+
+			amd64_push_reg (code, AMD64_R15);
+			cfa_offset += 8;
+
+			mono_emit_unwind_op_def_cfa_offset (cfg, code, cfa_offset);
+			mono_emit_unwind_op_offset (cfg, code, AMD64_R15, - cfa_offset);
+			async_exc_point (code);
+
+			mini_gc_set_slot_type_from_cfa (cfg, -cfa_offset, SLOT_NOREF);
+			mono_arch_unwindinfo_add_push_nonvol (&cfg->arch.unwindinfo, cfg->native_code, code, AMD64_R15);
+		}
+	}
+
+	*cfa_offset_input = cfa_offset;
+	return code;
+}
+
+guint8 *
+mono_arch_emit_prolog_setup_sp_win64(MonoCompile *cfg, guint8 *code, int alloc_size, int *cfa_offset_input)
+{
+	int cfa_offset = *cfa_offset_input;
+
+	// Enforce failure and try to restart method compilation with information
+	// to explicit prealloc additional fp register.
+	if (!cfg->restart_method_compile &&
+			!cfg->arch.unwindinfo_max_fp_offset &&
+			alloc_size > MONO_UNWIND_MAX_FP_OFFSET) {
+		cfg->restart_method_compile = TRUE;
+		return NULL;
+	}
+
+	/* Allocate windows stack frame */
+	if (alloc_size) {
+
+		if (alloc_size >= 0x1000) {
+			amd64_mov_reg_imm (code, AMD64_RAX, alloc_size);
+			code = emit_call_body (cfg, code, MONO_PATCH_INFO_INTERNAL_METHOD, "mono_chkstk_win64");
+		}
+
+		amd64_alu_reg_imm (code, X86_SUB, AMD64_RSP, alloc_size);
+		if (cfg->arch.omit_fp) {
+			cfa_offset += alloc_size;
+			mono_emit_unwind_op_def_cfa_offset (cfg, code, cfa_offset);
+			async_exc_point (code);
+		}
+
+		mono_arch_unwindinfo_add_alloc_stack (&cfg->arch.unwindinfo, cfg->native_code, code, alloc_size);
+	}
+
+	*cfa_offset_input = cfa_offset;
+	return code;
+}
+
+guint8 *
+mono_arch_emit_prolog_setup_fp_win64(MonoCompile *cfg, guint8 *code, int alloc_size, int *cfa_offset_input)
+{
+	int cfa_offset = *cfa_offset_input;
+
+	// Validate that assumption still holds when we know the needed alloc size.
+	g_assert (cfg->arch.unwindinfo_max_fp_offset || (!cfg->arch.unwindinfo_max_fp_offset && alloc_size < MONO_UNWIND_MAX_FP_OFFSET));
+
+	/* Allocate windows frame pointer. NOTE can be == with mono's frame pointer or different
+	*  depending on allocation size.
+	*/
+	if (!cfg->arch.omit_fp) {
+		if (!cfg->arch.unwindinfo_max_fp_offset) {
+			amd64_lea_membase (code, AMD64_RBP, AMD64_RSP, alloc_size);
+			mono_emit_unwind_op_def_cfa_reg (cfg, code, AMD64_RBP);
+			async_exc_point (code);
+			mono_arch_unwindinfo_add_set_fpreg (&cfg->arch.unwindinfo, cfg->native_code, code, AMD64_RBP, alloc_size);
+		} else {
+			amd64_lea_membase (code, AMD64_R13, AMD64_RSP, 0);
+			mono_arch_unwindinfo_add_set_fpreg (&cfg->arch.unwindinfo, cfg->native_code, code, AMD64_R13, 0);
+
+			amd64_lea_membase (code, AMD64_RBP, AMD64_RSP, alloc_size);
+			mono_emit_unwind_op_def_cfa_reg (cfg, code, AMD64_RBP);
+			async_exc_point (code);
+		}
+	}
+
+	*cfa_offset_input = cfa_offset;
+	return code;
+}
+
+guint8 *
 mono_arch_emit_prolog (MonoCompile *cfg)
 {
 	MonoMethod *method = cfg->method;
@@ -6573,9 +6714,19 @@ mono_arch_emit_prolog (MonoCompile *cfg)
 	/* 
 	 * The prolog consists of the following parts:
 	 * FP present:
+	 * #ifdef TARGET_WIN32
+	 * - push rbp
+	 * - [push r13]
+	 * - [push r15]
+	 * - save callee saved regs using pushes
+	 * - allocate frame
+	 * - [setup r13 framepointer]
+	 * - setup rbp frampointer
+	 * #else
 	 * - push rbp, mov rbp, rsp
 	 * - save callee saved regs using pushes
 	 * - allocate frame
+	 * #endif
 	 * - save rgctx if needed
 	 * - save lmf if needed
 	 * FP not present:
@@ -6593,25 +6744,24 @@ mono_arch_emit_prolog (MonoCompile *cfg)
 	async_exc_point (code);
 	mini_gc_set_slot_type_from_cfa (cfg, -cfa_offset, SLOT_NOREF);
 
+#ifdef TARGET_WIN32
+	code = mono_arch_emit_prolog_push_nonvol_win64 (cfg, code, &cfa_offset);
+#else
 	if (!cfg->arch.omit_fp) {
 		amd64_push_reg (code, AMD64_RBP);
 		cfa_offset += 8;
 		mono_emit_unwind_op_def_cfa_offset (cfg, code, cfa_offset);
 		mono_emit_unwind_op_offset (cfg, code, AMD64_RBP, - cfa_offset);
 		async_exc_point (code);
-#ifdef TARGET_WIN32
-		mono_arch_unwindinfo_add_push_nonvol (&cfg->arch.unwindinfo, cfg->native_code, code, AMD64_RBP);
-#endif
+
 		/* These are handled automatically by the stack marking code */
 		mini_gc_set_slot_type_from_cfa (cfg, -cfa_offset, SLOT_NOREF);
-		
+
 		amd64_mov_reg_reg (code, AMD64_RBP, AMD64_RSP, sizeof(mgreg_t));
 		mono_emit_unwind_op_def_cfa_reg (cfg, code, AMD64_RBP);
 		async_exc_point (code);
-#ifdef TARGET_WIN32
-		mono_arch_unwindinfo_add_set_fpreg (&cfg->arch.unwindinfo, cfg->native_code, code, AMD64_RBP);
-#endif
 	}
+#endif
 
 	/* The param area is always at offset 0 from sp */
 	/* This needs to be allocated here, since it has to come after the spill area */
@@ -6640,16 +6790,25 @@ mono_arch_emit_prolog (MonoCompile *cfg)
 			/* Mark the padding slot as NOREF */
 			mini_gc_set_slot_type_from_fp (cfg, -alloc_size + cfg->param_area, SLOT_NOREF);
 		}
+
 		cfg->arch.sp_fp_offset = alloc_size;
 		alloc_size -= pos;
 	}
 
 	cfg->arch.stack_alloc_size = alloc_size;
 
+#ifdef TARGET_WIN32
+	code = mono_arch_emit_prolog_setup_sp_win64(cfg, code, alloc_size, &cfa_offset);
+	if (code == NULL)
+		return code;
+	code = mono_arch_emit_prolog_setup_fp_win64(cfg, code, alloc_size, &cfa_offset);
+	if (code == NULL)
+		return code;
+#else
 	/* Allocate stack frame */
 	if (alloc_size) {
 		/* See mono_emit_stack_alloc */
-#if defined(TARGET_WIN32) || defined(MONO_ARCH_SIGSEGV_ON_ALTSTACK)
+#if defined(MONO_ARCH_SIGSEGV_ON_ALTSTACK)
 		guint32 remaining_size = alloc_size;
 		/*FIXME handle unbounded code expansion, we should use a loop in case of more than X interactions*/
 		guint32 required_code_size = ((remaining_size / 0x1000) + 1) * 11; /*11 is the max size of amd64_alu_reg_imm + amd64_test_membase_reg*/
@@ -6669,10 +6828,6 @@ mono_arch_emit_prolog (MonoCompile *cfg)
  				mono_emit_unwind_op_def_cfa_offset (cfg, code, cfa_offset);
 			}
 			async_exc_point (code);
-#ifdef TARGET_WIN32
-			if (cfg->arch.omit_fp) 
-				mono_arch_unwindinfo_add_alloc_stack (&cfg->arch.unwindinfo, cfg->native_code, code, 0x1000);
-#endif
 
 			amd64_test_membase_reg (code, AMD64_RSP, 0, AMD64_RSP);
 			remaining_size -= 0x1000;
@@ -6684,10 +6839,6 @@ mono_arch_emit_prolog (MonoCompile *cfg)
  				mono_emit_unwind_op_def_cfa_offset (cfg, code, cfa_offset);
 				async_exc_point (code);
 			}
-#ifdef TARGET_WIN32
-			if (cfg->arch.omit_fp) 
-				mono_arch_unwindinfo_add_alloc_stack (&cfg->arch.unwindinfo, cfg->native_code, code, remaining_size);
-#endif
 		}
 #else
 		amd64_alu_reg_imm (code, X86_SUB, AMD64_RSP, alloc_size);
@@ -6698,6 +6849,7 @@ mono_arch_emit_prolog (MonoCompile *cfg)
 		}
 #endif
 	}
+#endif
 
 	/* Stack alignment check */
 #if 0
@@ -7034,6 +7186,26 @@ mono_arch_emit_prolog (MonoCompile *cfg)
 	return code;
 }
 
+guint8 *
+mono_arch_emit_epilog_win64(MonoCompile *cfg, guint8 * code)
+{
+	if (cfg->arch.unwindinfo_max_fp_offset) {
+		amd64_lea_membase (code, AMD64_RSP, AMD64_R13, cfg->arch.stack_alloc_size);
+		amd64_pop_reg (code, AMD64_R15);
+		mono_emit_unwind_op_same_value (cfg, code, AMD64_R15);
+		amd64_pop_reg (code, AMD64_R13);
+		mono_emit_unwind_op_same_value (cfg, code, AMD64_R13);
+		amd64_pop_reg (code, AMD64_RBP);
+		mono_emit_unwind_op_same_value (cfg, code, AMD64_RBP);
+	} else {
+		amd64_lea_membase (code, AMD64_RSP, AMD64_RBP, 0);
+		amd64_pop_reg (code, AMD64_RBP);
+		mono_emit_unwind_op_same_value (cfg, code, AMD64_RBP);
+	}
+
+	return code;
+}
+
 void
 mono_arch_emit_epilog (MonoCompile *cfg)
 {
@@ -7138,8 +7310,12 @@ mono_arch_emit_epilog (MonoCompile *cfg)
 			amd64_alu_reg_imm (code, X86_ADD, AMD64_RSP, cfg->arch.stack_alloc_size);
 		}
 	} else {
+#ifdef TARGET_WIN32
+		code = mono_arch_emit_epilog_win64 (cfg, code);
+#else
 		amd64_leave (code);
 		mono_emit_unwind_op_same_value (cfg, code, AMD64_RBP);
+#endif
 	}
 	mono_emit_unwind_op_def_cfa (cfg, code, AMD64_RSP, 8);
 	async_exc_point (code);

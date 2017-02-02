@@ -2244,6 +2244,11 @@ mono_codegen (MonoCompile *cfg)
 		cfg->coverage_info = mono_profiler_coverage_alloc (cfg->method, cfg->num_bblocks);
 
 	code = mono_arch_emit_prolog (cfg);
+#ifdef TARGET_WIN32
+	if (code == NULL) {
+		return;
+	}
+#endif
 
 	cfg->code_len = code - cfg->native_code;
 	cfg->prolog_end = cfg->code_len;
@@ -3113,9 +3118,11 @@ mini_method_compile (MonoMethod *method, guint32 opts, MonoDomain *domain, JitFl
 	gboolean full_aot = (flags & JIT_FLAG_FULL_AOT) ? 1 : 0;
 	gboolean disable_direct_icalls = (flags & JIT_FLAG_NO_DIRECT_ICALLS) ? 1 : 0;
 	gboolean gsharedvt_method = FALSE;
+	int restart_compile_count = 0;
 #ifdef ENABLE_LLVM
 	gboolean llvm = (flags & JIT_FLAG_LLVM) ? 1 : 0;
 #endif
+
 	static gboolean verbose_method_inited;
 	static const char *verbose_method_name;
 
@@ -3197,6 +3204,7 @@ mini_method_compile (MonoMethod *method, guint32 opts, MonoDomain *domain, JitFl
 	cfg->gen_sdb_seq_points = debug_options.gen_sdb_seq_points;
 	cfg->llvm_only = (flags & JIT_FLAG_LLVM_ONLY) != 0;
 	cfg->backend = current_backend;
+	cfg->restart_method_compile = (restart_compile_count != 0 ? TRUE : FALSE);
 
 #ifdef PLATFORM_ANDROID
 	if (cfg->method->wrapper_type != MONO_WRAPPER_NONE) {
@@ -3860,6 +3868,12 @@ mini_method_compile (MonoMethod *method, guint32 opts, MonoDomain *domain, JitFl
 #endif
 	} else {
 		MONO_TIME_TRACK (mono_jit_stats.jit_codegen, mono_codegen (cfg));
+		if (cfg->restart_method_compile && restart_compile_count == 0) {
+			mono_destroy_compile (cfg);
+			restart_compile_count++;
+			goto restart_compile;
+		}
+
 		mono_cfg_dump_ir (cfg, "codegen");
 		if (cfg->exception_type)
 			return cfg;
