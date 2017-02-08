@@ -288,6 +288,8 @@ mono_arch_create_generic_trampoline (MonoTrampolineType tramp_type, MonoTrampInf
 	code += 5;
 	after_r11_save_code = code;
 
+	// This is not part of a valid Windows x64 prolog. We need to adjust start of unwind
+	// info to pass this instruction in order to properly unwind through this frame.
 	/* Pop the return address off the stack */
 	amd64_pop_reg (code, AMD64_R11);
 	orig_rsp_to_rbp_offset += sizeof(mgreg_t);
@@ -304,9 +306,15 @@ mono_arch_create_generic_trampoline (MonoTrampolineType tramp_type, MonoTrampInf
 	mono_add_unwind_op_offset (unwind_ops, code, buf, AMD64_RBP, - cfa_offset);
 
 	orig_rsp_to_rbp_offset -= sizeof(mgreg_t);
+#ifdef TARGET_WIN32
+	amd64_alu_reg_imm (code, X86_SUB, AMD64_RSP, framesize);
+	amd64_lea_membase (code, AMD64_RBP, AMD64_RSP, framesize);
+	mono_add_unwind_op_def_cfa_reg (unwind_ops, code, buf, AMD64_RBP);
+#else
 	amd64_mov_reg_reg (code, AMD64_RBP, AMD64_RSP, sizeof(mgreg_t));
 	mono_add_unwind_op_def_cfa_reg (unwind_ops, code, buf, AMD64_RBP);
 	amd64_alu_reg_imm (code, X86_SUB, AMD64_RSP, framesize);
+#endif
 
 	/* Compute the trampoline address from the return address */
 	if (aot) {
@@ -505,7 +513,13 @@ mono_arch_create_generic_trampoline (MonoTrampolineType tramp_type, MonoTrampInf
 	 * We have an exception we want to throw in the caller's frame, so pop
 	 * the trampoline frame and throw from the caller.
 	 */
+#if TARGET_WIN32
+	amd64_lea_membase (code, AMD64_RSP, AMD64_RBP, 0);
+	amd64_pop_reg (code, AMD64_RBP);
+	mono_add_unwind_op_same_value (unwind_ops, code, buf, AMD64_RBP);
+#else
 	amd64_leave (code);
+#endif
 	/* We are in the parent frame, the exception is in rax */
 	/*
 	 * EH is initialized after trampolines, so get the address of the variable
@@ -537,7 +551,13 @@ mono_arch_create_generic_trampoline (MonoTrampolineType tramp_type, MonoTrampInf
 		amd64_movsd_reg_membase (code, i, AMD64_RBP, saved_fpregs_offset + (i * sizeof(mgreg_t)));
 
 	/* Restore stack */
+#if TARGET_WIN32
+	amd64_lea_membase (code, AMD64_RSP, AMD64_RBP, 0);
+	amd64_pop_reg (code, AMD64_RBP);
+	mono_add_unwind_op_same_value (unwind_ops, code, buf, AMD64_RBP);
+#else
 	amd64_leave (code);
+#endif
 	cfa_offset -= sizeof (mgreg_t);
 	mono_add_unwind_op_def_cfa (unwind_ops, code, buf, AMD64_RSP, cfa_offset);
 
@@ -911,9 +931,15 @@ mono_arch_create_sdb_trampoline (gboolean single_step, MonoTrampInfo **info, gbo
 	mono_add_unwind_op_def_cfa_offset (unwind_ops, code, buf, cfa_offset);
 	mono_add_unwind_op_offset (unwind_ops, code, buf, AMD64_RBP, - cfa_offset);
 
+#ifdef TARGET_WIN32
+	amd64_alu_reg_imm (code, X86_SUB, AMD64_RSP, framesize);
+	amd64_lea_membase (code, AMD64_RBP, AMD64_RSP, framesize);
+	mono_add_unwind_op_def_cfa_reg (unwind_ops, code, buf, AMD64_RBP);
+#else
 	amd64_mov_reg_reg (code, AMD64_RBP, AMD64_RSP, sizeof(mgreg_t));
 	mono_add_unwind_op_def_cfa_reg (unwind_ops, code, buf, AMD64_RBP);
 	amd64_alu_reg_imm (code, X86_SUB, AMD64_RSP, framesize);
+#endif
 
 	gregs_offset = ctx_offset + MONO_STRUCT_OFFSET (MonoContext, gregs);
 
@@ -955,7 +981,13 @@ mono_arch_create_sdb_trampoline (gboolean single_step, MonoTrampInfo **info, gbo
 	amd64_mov_reg_membase (code, AMD64_R11, AMD64_RSP, gregs_offset + (AMD64_RIP * sizeof (mgreg_t)), sizeof (mgreg_t));
 	amd64_mov_membase_reg (code, AMD64_RBP, sizeof (mgreg_t), AMD64_R11, sizeof (mgreg_t));
 
+#if TARGET_WIN32
+	amd64_lea_membase (code, AMD64_RSP, AMD64_RBP, 0);
+	amd64_pop_reg (code, AMD64_RBP);
+	mono_add_unwind_op_same_value (unwind_ops, code, buf, AMD64_RBP);
+#else
 	amd64_leave (code);
+#endif
 	cfa_offset -= sizeof (mgreg_t);
 	mono_add_unwind_op_def_cfa (unwind_ops, code, buf, AMD64_RSP, cfa_offset);
 	amd64_ret (code);

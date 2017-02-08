@@ -449,6 +449,11 @@ mono_unwind_ops_encode_full (GSList *unwind_ops, guint32 *out_len, gboolean enab
 			g_assert (op->val == 0);
 			*p ++ = op->op;
 			break;
+#ifdef TARGET_WIN32
+		case DW_CFA_mono_sp_alloc_info:
+		case DW_CFA_mono_fp_alloc_info:
+			break;
+#endif
 		default:
 			g_assert_not_reached ();
 			break;

@@ -952,15 +952,12 @@ mono_arch_unwindinfo_create (gpointer* monoui)
 }
 
 void
-mono_arch_unwindinfo_add_push_nonvol (gpointer* monoui, gpointer codebegin, gpointer nextip, guchar reg )
+mono_arch_unwindinfo_add_push_nonvol (PMonoUnwindInfo unwindinfo, MonoUnwindOp *unwind_op)
 {
-	PMonoUnwindInfo unwindinfo;
 	PUNWIND_CODE unwindcode;
 	guchar codeindex;
-	if (!*monoui)
-		mono_arch_unwindinfo_create (monoui);
-	
-	unwindinfo = (MonoUnwindInfo*)*monoui;
+
+	g_assert (unwindinfo != NULL);
 
 	if (unwindinfo->unwindInfo.CountOfCodes >= MONO_MAX_UNWIND_CODES)
 		g_error ("Larger allocation needed for the unwind information.");
@@ -968,8 +965,8 @@ mono_arch_unwindinfo_add_push_nonvol (gpointer* monoui, gpointer codebegin, gpoi
 	codeindex = MONO_MAX_UNWIND_CODES - (++unwindinfo->unwindInfo.CountOfCodes);
 	unwindcode = &unwindinfo->unwindInfo.UnwindCode[codeindex];
 	unwindcode->UnwindOp = UWOP_PUSH_NONVOL;
-	unwindcode->CodeOffset = (((guchar*)nextip)-((guchar*)codebegin));
-	unwindcode->OpInfo = reg;
+	unwindcode->CodeOffset = (guchar)unwind_op->when;
+	unwindcode->OpInfo = unwind_op->reg;
 
 	if (unwindinfo->unwindInfo.SizeOfProlog >= unwindcode->CodeOffset)
 		g_error ("Adding unwind info in wrong order.");
@@ -978,15 +975,12 @@ mono_arch_unwindinfo_add_push_nonvol (gpointer* monoui, gpointer codebegin, gpoi
 }
 
 void
-mono_arch_unwindinfo_add_set_fpreg (gpointer* monoui, gpointer codebegin, gpointer nextip, guchar reg, gushort frameOffset)
+mono_arch_unwindinfo_add_set_fpreg (PMonoUnwindInfo unwindinfo, MonoUnwindOp *unwind_op)
 {
-	PMonoUnwindInfo unwindinfo;
 	PUNWIND_CODE unwindcode;
 	guchar codeindex;
-	if (!*monoui)
-		mono_arch_unwindinfo_create (monoui);
-	
-	unwindinfo = (MonoUnwindInfo*)*monoui;
+
+	g_assert (unwindinfo != NULL);
 
 	if (unwindinfo->unwindInfo.CountOfCodes + 1 >= MONO_MAX_UNWIND_CODES)
 		g_error ("Larger allocation needed for the unwind information.");
@@ -994,11 +988,11 @@ mono_arch_unwindinfo_add_set_fpreg (gpointer* monoui, gpointer codebegin, gpoint
 	codeindex = MONO_MAX_UNWIND_CODES - (++unwindinfo->unwindInfo.CountOfCodes);
 	unwindcode = &unwindinfo->unwindInfo.UnwindCode[codeindex];
 	unwindcode->UnwindOp = UWOP_SET_FPREG;
-	unwindcode->CodeOffset = (((guchar*)nextip)-((guchar*)codebegin));
+	unwindcode->CodeOffset = (guchar)unwind_op->when;
 	
-	g_assert(frameOffset % 16 == 0);
-	unwindinfo->unwindInfo.FrameRegister = reg;
-	unwindinfo->unwindInfo.FrameOffset = frameOffset / 16;
+	g_assert(unwind_op->val % 16 == 0);
+	unwindinfo->unwindInfo.FrameRegister = unwind_op->reg;
+	unwindinfo->unwindInfo.FrameOffset = unwind_op->val / 16;
 
 	if (unwindinfo->unwindInfo.SizeOfProlog >= unwindcode->CodeOffset)
 		g_error ("Adding unwind info in wrong order.");
@@ -1007,16 +1001,16 @@ mono_arch_unwindinfo_add_set_fpreg (gpointer* monoui, gpointer codebegin, gpoint
 }
 
 void
-mono_arch_unwindinfo_add_alloc_stack (gpointer* monoui, gpointer codebegin, gpointer nextip, guint size )
+mono_arch_unwindinfo_add_alloc_stack (PMonoUnwindInfo unwindinfo, MonoUnwindOp *unwind_op)
 {
-	PMonoUnwindInfo unwindinfo;
 	PUNWIND_CODE unwindcode;
 	guchar codeindex;
 	guchar codesneeded;
-	if (!*monoui)
-		mono_arch_unwindinfo_create (monoui);
+	guint size;
 	
-	unwindinfo = (MonoUnwindInfo*)*monoui;
+	g_assert (unwindinfo != NULL);
+
+	size = unwind_op->val;
 
 	if (size < 0x8)
 		g_error ("Stack allocation must be equal to or greater than 0x8.");
@@ -1059,7 +1053,7 @@ mono_arch_unwindinfo_add_alloc_stack (gpointer* monoui, gpointer codebegin, gpoi
 		unwindcode->UnwindOp = UWOP_ALLOC_LARGE;
 	}
 
-	unwindcode->CodeOffset = (((guchar*)nextip)-((guchar*)codebegin));
+	unwindcode->CodeOffset = (guchar)unwind_op->when;
 
 	if (unwindinfo->unwindInfo.SizeOfProlog >= unwindcode->CodeOffset)
 		g_error ("Adding unwind info in wrong order.");
@@ -1069,14 +1063,43 @@ mono_arch_unwindinfo_add_alloc_stack (gpointer* monoui, gpointer codebegin, gpoi
 
 #ifdef MONO_ARCH_HAVE_UNWIND_TABLE
 guint
-mono_arch_unwindinfo_get_size (gpointer monoui)
+mono_arch_unwindinfo_get_size (gpointer *cfg)
 {
 	PMonoUnwindInfo unwindinfo;
-	if (!monoui)
-		return 0;
-	
-	unwindinfo = (MonoUnwindInfo*)monoui;
+	MonoCompile * current_cfg = (MonoCompile *)cfg;
 
+	g_assert (current_cfg->arch.unwindinfo == NULL);
+	mono_arch_unwindinfo_create (&unwindinfo);
+
+	if (!unwindinfo)
+		return 0;
+
+	current_cfg->arch.unwindinfo = unwindinfo;
+
+	MonoUnwindOp *unwind_op_data;
+
+	// Replay collected unwind info and setup Windows format.
+	for (GSList *l = current_cfg->unwind_ops; l; l = l->next) {
+		unwind_op_data = (MonoUnwindOp *)l->data;
+		switch (unwind_op_data->op) {
+			case DW_CFA_offset : {
+				if (unwind_op_data->reg != AMD64_RIP)
+					mono_arch_unwindinfo_add_push_nonvol (unwindinfo, unwind_op_data);
+				break;
+			}
+			case DW_CFA_mono_sp_alloc_info : {
+				mono_arch_unwindinfo_add_alloc_stack (unwindinfo, unwind_op_data);
+				break;
+			}
+			case DW_CFA_mono_fp_alloc_info : {
+				mono_arch_unwindinfo_add_set_fpreg (unwindinfo, unwind_op_data);
+				break;
+			}
+			default :
+				break;
+		}
+	}
+	
 	// Returned size will be used as the allocated size for unwind data trailing the memory used by compiled method.
 	// Windows x64 ABI have some requirements on the data written into this memory. Both the RUNTIME_FUNCTION
 	// and UNWIND_INFO struct needs to be DWORD aligend and the number of elements in unwind codes array
@@ -1115,6 +1138,291 @@ MONO_GET_RUNTIME_FUNCTION_CALLBACK ( DWORD64 ControlPc, IN PVOID Context )
 	return &targetinfo->runtimeFunction;
 }
 
+// List including all code chunks registered with offset data.
+// On each list, register RUNTIME functions in sorted order.
+// On callback fetch directly from list.
+// From DLL load items directly from list using ReadProcessMemory.
+// For RtlAddGrowableTable add item by item when added to list, when realloc, copy all sorted items directly from list.
+// Lock is needed for access to list spinlock OK?
+
+typedef struct {
+	PVOID table_handle;
+	ULONG64 min_address;
+    ULONG64 max_address;
+	PRUNTIME_FUNCTION rt_funcs; 
+	DWORD rt_funcs_current_count;
+	DWORD rt_funcs_max_count;
+} UnwindInfoTableEntry;
+
+#define MONO_UNWIND_INFO_RT_FUNC_SIZE 128
+
+// Change to array, do binary searach, since sorted in find for both arrays.
+// Do same sort insert for the unwindinfo_table.
+GList *g_unwindinfo_table = NULL;
+
+//LOCK
+//WIN8 RTL methods.
+
+void
+mono_arch_unwindinfo_alloc_table (void)
+{
+	//SETUP LOCK
+	//LOAD ENTRIES.
+
+	g_assert (g_unwindinfo_table == NULL);
+}
+
+void
+mono_arch_unwindinfo_dealloc_table (void)
+{
+	if (g_unwindinfo_table != NULL) {
+		// Free all list elements.
+		for (GList *l = g_unwindinfo_table; l; l = l->next) {
+			if (l->data) {
+				g_free (l->data);
+				l->data = NULL;
+			}
+		}
+
+		//Free the list.
+		g_list_free (g_unwindinfo_table);
+		g_unwindinfo_table = NULL;
+	}
+
+	//FREE LOCK?
+}
+
+gboolean
+mono_arch_unwindinfo_check_table_perimiters (const gpointer start)
+{
+	gboolean in_table = FALSE;
+
+	// Fast path, start to check sorted list perimiters.
+	if (g_unwindinfo_table != NULL) {
+		UnwindInfoTableEntry *first_entry = g_unwindinfo_table->data;
+		UnwindInfoTableEntry *last_entry = (g_unwindinfo_table->prev != NULL ) ? g_unwindinfo_table->prev->data : first_entry;
+
+		if (first_entry != NULL && first_entry->min_address <= (gsize)start) {
+			if (last_entry != NULL && last_entry->max_address >= (gsize)start) {
+				in_table = TRUE;
+			}
+		}
+	}
+
+	return in_table;
+}
+
+UnwindInfoTableEntry *
+mono_arch_unwindinfo_find_table_entry (const gpointer code_block, gsize block_size)
+{
+	UnwindInfoTableEntry *found_entry = NULL;
+	gsize min_address = (gsize)code_block;
+	gsize max_address = (gsize)code_block + block_size;
+
+	// Fast path to quickly check table perimiters.
+	if (!mono_arch_unwindinfo_check_table_perimiters (code_block))
+		return found_entry;
+
+	for (GList *node = g_unwindinfo_table; node; node = node->next) {
+		UnwindInfoTableEntry *current_entry = (UnwindInfoTableEntry *)node->data;
+		g_assert (current_entry != NULL);
+
+		if (current_entry->min_address > (gsize)code_block) {
+			// Fast abandon, list is sorted so entry is not in table.
+			break;
+		}
+
+		// Do we have a match?
+		if (current_entry->min_address == min_address && current_entry->max_address == max_address) {
+			found_entry = current_entry;
+			break;
+		}
+	}
+
+	return found_entry;
+}
+
+UnwindInfoTableEntry *
+mono_arch_unwindinfo_find_pc_table_entry (const gpointer pc)
+{
+	UnwindInfoTableEntry *found_entry = NULL;
+
+	// Fast path to check table perimiters.
+	if (!mono_arch_unwindinfo_check_table_perimiters (pc))
+		return found_entry;
+
+	for (GList *node = g_unwindinfo_table; node; node = node->next) {
+		UnwindInfoTableEntry *current_entry = (UnwindInfoTableEntry *)node->data;
+		g_assert (current_entry != NULL);
+
+		if (current_entry->min_address > (gsize)pc) {
+			// Fast abandon, list is sorted so entry is not in table.
+			break;
+		}
+
+		// Does pc belong the this table entry?
+		if (current_entry->min_address <= (gsize)pc && current_entry->max_address >= (gsize)pc) {
+			found_entry = current_entry;
+			break;
+		}
+	}
+
+	return found_entry;
+}
+
+UnwindInfoTableEntry *
+mono_arch_unwindinfo_insert_table_entry (const gpointer code_block, gsize block_size)
+{
+	UnwindInfoTableEntry *new_entry = NULL;
+	gsize min_address = (gsize)code_block;
+	gsize max_address = (gsize)code_block + block_size;
+
+	new_entry = mono_arch_unwindinfo_find_table_entry (code_block, block_size);
+	if (new_entry == NULL) {
+		// Allocate new entry.
+		new_entry = g_new0 (UnwindInfoTableEntry, 1);
+		if (new_entry != NULL) {
+			// Pre-allocate RUNTIME_FUNCTION array, assume average method size of 128 bytes.
+			new_entry->min_address = min_address;
+			new_entry->max_address = max_address;
+			new_entry->rt_funcs_max_count = (block_size / MONO_UNWIND_INFO_RT_FUNC_SIZE) + 1;
+			new_entry->rt_funcs_current_count = 0;
+			new_entry->rt_funcs = g_new0 (RUNTIME_FUNCTION, new_entry->rt_funcs_max_count);
+
+			if (new_entry->rt_funcs != NULL) {
+				UnwindInfoTableEntry *current_entry = (g_unwindinfo_table != NULL) ? (UnwindInfoTableEntry *)(g_list_last(g_unwindinfo_table)->data) : NULL;
+				if (current_entry == NULL || current_entry->min_address < new_entry->min_address) {
+					g_unwindinfo_table = g_list_append (g_unwindinfo_table, new_entry);
+				} else {
+					for (GList *node = g_unwindinfo_table; node; node = node->next) {
+						current_entry = (UnwindInfoTableEntry *)node->data;
+						g_assert (current_entry != NULL);
+
+						if (current_entry->min_address > new_entry->min_address) {
+							g_unwindinfo_table = g_list_insert_before (g_unwindinfo_table, node, new_entry);
+							break;
+						}
+					}
+				}
+			} else {
+				g_free (new_entry);
+				new_entry = NULL;
+			}
+		}
+	}
+
+	return new_entry;
+}
+
+PRUNTIME_FUNCTION
+mono_arch_unwindinfo_table_find_rt_func (const gpointer code, gsize code_size)
+{
+	PRUNTIME_FUNCTION found_rt_func = NULL;
+	gsize min_address = (gsize)code;
+	gsize max_address = (gsize)code + code_size;
+
+	UnwindInfoTableEntry *found_entry = mono_arch_unwindinfo_find_pc_table_entry (code);
+
+	if (found_entry != NULL) {
+		g_assert (found_entry->min_address <= min_address);
+		g_assert (found_entry->max_address >= min_address && found_entry->max_address >= max_address);
+		g_assert (found_entry->rt_funcs != NULL);
+
+		for (int i = 0; i < found_entry->rt_funcs_current_count; ++i) {
+			PRUNTIME_FUNCTION current_rt_func = (PRUNTIME_FUNCTION)(&found_entry->rt_funcs[i]);
+
+			//FAST ABANDON!!
+
+			// Is this our RT function entry?
+			if (found_entry->min_address + current_rt_func->BeginAddress <= min_address && 
+				found_entry->min_address + current_rt_func->EndAddress >= max_address) {
+				found_rt_func = current_rt_func;
+				break;
+			}
+		}
+	}
+
+	return found_rt_func;
+}
+
+PRUNTIME_FUNCTION
+mono_arch_unwindinfo_table_insert_rt_func (const gpointer code, gsize code_size)
+{
+	PRUNTIME_FUNCTION new_rt_func = NULL;
+	gsize min_address = (gsize)code;
+	gsize max_address = (gsize)code + code_size;
+
+	UnwindInfoTableEntry *found_entry = mono_arch_unwindinfo_find_pc_table_entry (code);
+
+	if (found_entry != NULL) {
+		g_assert (found_entry->min_address <= min_address && found_entry->max_address >= max_address);
+		g_assert (found_entry->rt_funcs_current_count <= found_entry->rt_funcs_max_count);
+		g_assert (found_entry->rt_funcs != NULL);
+	
+		gsize code_offset = (gsize)code - found_entry->min_address;
+		gsize entry_count = found_entry->rt_funcs_current_count;
+		gsize max_entry_count = found_entry->rt_funcs_max_count;
+		PRUNTIME_FUNCTION current_rt_funcs = found_entry->rt_funcs;
+
+		RUNTIME_FUNCTION new_rt_func_data;
+		new_rt_func_data.BeginAddress = code_offset;
+		new_rt_func_data.EndAddress = code_offset + code_size;
+		new_rt_func_data.UnwindData = ALIGN_TO(new_rt_func_data.EndAddress, sizeof (mgreg_t));
+
+		PRUNTIME_FUNCTION new_rt_funcs = NULL;
+
+		// List needs to be sorted in ascending order based on BeginAddress.
+		// Check if we can append to end of existing table without realloc.
+		if (entry_count == 0 || (entry_count < max_entry_count) && (current_rt_funcs [entry_count - 1].BeginAddress) < code_offset) {
+			new_rt_func = &(current_rt_funcs [entry_count]);
+			*new_rt_func = new_rt_func_data;
+			entry_count++;
+		} else {
+			// No easy way out, need to realloc, grow to double size (or current max).
+			max_entry_count = entry_count * 2 > max_entry_count ? entry_count * 2 : max_entry_count;
+			new_rt_funcs = g_new0 (RUNTIME_FUNCTION, max_entry_count);
+
+			if (new_rt_funcs != NULL) {
+				gsize from_index = 0;
+				gsize to_index = 0;
+
+				// Copy from old table into new table. Make sure new rt func gets inserted
+				// into correct location.
+				for (; from_index < entry_count; ++from_index) {
+					if (current_rt_funcs [from_index].BeginAddress > new_rt_func_data.BeginAddress) {
+						new_rt_func = &(new_rt_funcs[to_index++]); 
+						*new_rt_func = new_rt_func_data;
+					}
+
+					if (current_rt_funcs [from_index].UnwindData != 0)
+						new_rt_funcs[to_index++] = current_rt_funcs [from_index];
+				}
+			
+				// If we didn't insert by now, put it last.
+				if (new_rt_func == NULL) {
+					new_rt_func = &(new_rt_funcs[to_index]); 
+					*new_rt_func = new_rt_func_data;
+				}
+			}
+
+			entry_count++;
+
+			if (new_rt_funcs == NULL) {
+				// No new table just report increase in use.
+			} else {
+				// New table, delete old, add new.
+			}
+		}
+
+		found_entry->rt_funcs_current_count = entry_count;
+		found_entry->rt_funcs_max_count = max_entry_count;
+	}
+
+	return new_rt_func;
+}
+
+
+
 void
 mono_arch_unwindinfo_install_unwind_info (gpointer* monoui, gpointer code, guint code_size)
 {
@@ -1146,6 +1454,10 @@ mono_arch_unwindinfo_install_unwind_info (gpointer* monoui, gpointer code, guint
 	//Location of RUNTIME_FUNCTION and UNWIND_INFO must be DWORD aligned.
 	//g_assert (((size_t)(&targetinfo->runtimeFunction) % sizeof (DWORD)) == 0);
 	//g_assert (((size_t)((guchar*)code + targetinfo->runtimeFunction.UnwindData) % sizeof (DWORD)) == 0);
+
+	mono_arch_unwindinfo_insert_table_entry (code, code_size);
+	//mono_arch_unwindinfo_table_insert_rt_func (code, code_size);
+
 
 	/*typedef PLIST_ENTRY (*RtlGetFunctionTableListHead)(void);
 	static RtlGetFunctionTableListHead dyn_list = NULL;

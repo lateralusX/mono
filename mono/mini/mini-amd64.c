@@ -6586,7 +6586,7 @@ mono_arch_emit_prolog_push_nonvol_win64 (MonoCompile *cfg, guint8 *code, int *cf
 		async_exc_point (code);
 		mini_gc_set_slot_type_from_cfa (cfg, -cfa_offset, SLOT_NOREF);
 
-		mono_arch_unwindinfo_add_push_nonvol (&cfg->arch.unwindinfo, cfg->native_code, code, AMD64_RBP);
+		//mono_arch_unwindinfo_add_push_nonvol (&cfg->arch.unwindinfo, cfg->native_code, code, AMD64_RBP);
 
 		if (cfg->arch.unwindinfo_max_fp_offset)
 		{
@@ -6599,7 +6599,7 @@ mono_arch_emit_prolog_push_nonvol_win64 (MonoCompile *cfg, guint8 *code, int *cf
 
 			mini_gc_set_slot_type_from_cfa (cfg, -cfa_offset, SLOT_NOREF);
 
-			mono_arch_unwindinfo_add_push_nonvol (&cfg->arch.unwindinfo, cfg->native_code, code, AMD64_R13);
+			//mono_arch_unwindinfo_add_push_nonvol (&cfg->arch.unwindinfo, cfg->native_code, code, AMD64_R13);
 
 			amd64_push_reg (code, AMD64_R15);
 			cfa_offset += 8;
@@ -6609,7 +6609,11 @@ mono_arch_emit_prolog_push_nonvol_win64 (MonoCompile *cfg, guint8 *code, int *cf
 			async_exc_point (code);
 
 			mini_gc_set_slot_type_from_cfa (cfg, -cfa_offset, SLOT_NOREF);
-			mono_arch_unwindinfo_add_push_nonvol (&cfg->arch.unwindinfo, cfg->native_code, code, AMD64_R15);
+			//mono_arch_unwindinfo_add_push_nonvol (&cfg->arch.unwindinfo, cfg->native_code, code, AMD64_R15);
+
+			amd64_mov_reg_reg (code, AMD64_RBP, AMD64_RSP, sizeof (mgreg_t));
+			mono_emit_unwind_op_def_cfa_reg (cfg, code, AMD64_RBP);
+			async_exc_point (code);
 		}
 	}
 
@@ -6646,7 +6650,8 @@ mono_arch_emit_prolog_setup_sp_win64(MonoCompile *cfg, guint8 *code, int alloc_s
 			async_exc_point (code);
 		}
 
-		mono_arch_unwindinfo_add_alloc_stack (&cfg->arch.unwindinfo, cfg->native_code, code, alloc_size);
+		mono_emit_unwind_op_sp_alloc (cfg, code, alloc_size);
+		//mono_arch_unwindinfo_add_alloc_stack (&cfg->arch.unwindinfo, cfg->native_code, code, alloc_size);
 	}
 
 	*cfa_offset_input = cfa_offset;
@@ -6669,14 +6674,12 @@ mono_arch_emit_prolog_setup_fp_win64(MonoCompile *cfg, guint8 *code, int alloc_s
 			amd64_lea_membase (code, AMD64_RBP, AMD64_RSP, alloc_size);
 			mono_emit_unwind_op_def_cfa_reg (cfg, code, AMD64_RBP);
 			async_exc_point (code);
-			mono_arch_unwindinfo_add_set_fpreg (&cfg->arch.unwindinfo, cfg->native_code, code, AMD64_RBP, alloc_size);
+			mono_emit_unwind_op_fp_alloc (cfg, code, AMD64_RBP, alloc_size);
+			//mono_arch_unwindinfo_add_set_fpreg (&cfg->arch.unwindinfo, cfg->native_code, code, AMD64_RBP, alloc_size);
 		} else {
 			amd64_lea_membase (code, AMD64_R13, AMD64_RSP, 0);
-			mono_arch_unwindinfo_add_set_fpreg (&cfg->arch.unwindinfo, cfg->native_code, code, AMD64_R13, 0);
-
-			amd64_lea_membase (code, AMD64_RBP, AMD64_RSP, alloc_size);
-			mono_emit_unwind_op_def_cfa_reg (cfg, code, AMD64_RBP);
-			async_exc_point (code);
+			mono_emit_unwind_op_fp_alloc (cfg, code, AMD64_RBP, alloc_size);
+			//mono_arch_unwindinfo_add_set_fpreg (&cfg->arch.unwindinfo, cfg->native_code, code, AMD64_R13, 0);
 		}
 	}
 

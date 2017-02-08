@@ -481,10 +481,10 @@ mono_amd64_handler_block_trampoline_helper (void);
 
 #define MONO_UNWIND_MAX_FP_OFFSET (240 * 16)
 
-void mono_arch_unwindinfo_add_push_nonvol (gpointer* monoui, gpointer codebegin, gpointer nextip, guchar reg );
-void mono_arch_unwindinfo_add_set_fpreg (gpointer* monoui, gpointer codebegin, gpointer nextip, guchar reg, gushort frameOffset );
-void mono_arch_unwindinfo_add_alloc_stack (gpointer* monoui, gpointer codebegin, gpointer nextip, guint size );
-guint mono_arch_unwindinfo_get_size (gpointer monoui);
+//void mono_arch_unwindinfo_add_push_nonvol (gpointer* monoui, MonoUnwindOp *unwind_op );
+//void mono_arch_unwindinfo_add_set_fpreg (gpointer* monoui, gpointer codebegin, gpointer nextip, guchar reg, gushort frameOffset );
+//void mono_arch_unwindinfo_add_alloc_stack (gpointer* monoui, gpointer codebegin, gpointer nextip, guint size );
+guint mono_arch_unwindinfo_get_size (gpointer *cfg);
 void mono_arch_unwindinfo_install_unwind_info (gpointer* monoui, gpointer code, guint code_size);
 
 #if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
