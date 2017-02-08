@@ -179,7 +179,8 @@ typedef struct MonoCompileArch {
 	gpointer vret_addr_loc;
 #ifdef HOST_WIN32
 	gpointer unwindinfo;
-	gboolean unwindinfo_max_fp_offset;
+	gboolean unwindinfo_large_sp_alloc;
+	gint32 unwindinfo_saved_fp_offset;
 #endif
 	gpointer seq_point_info_var;
 	gpointer ss_trigger_page_var;
@@ -478,8 +479,6 @@ gpointer
 mono_amd64_handler_block_trampoline_helper (void);
 
 #if defined(TARGET_WIN32) && !defined(DISABLE_JIT)
-
-#define MONO_UNWIND_MAX_FP_OFFSET (240 * 16)
 
 //void mono_arch_unwindinfo_add_push_nonvol (gpointer* monoui, MonoUnwindOp *unwind_op );
 //void mono_arch_unwindinfo_add_set_fpreg (gpointer* monoui, gpointer codebegin, gpointer nextip, guchar reg, gushort frameOffset );
