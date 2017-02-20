@@ -887,18 +887,6 @@ mono_arch_exceptions_init (void)
 
 #if defined(TARGET_WIN32) && !defined(DISABLE_JIT)
 
-typedef struct {
-	SRWLOCK lock;
-	PVOID handle;
-	gsize begin_range;
-	gsize end_range;
-	PRUNTIME_FUNCTION rt_funcs; 
-	DWORD rt_funcs_current_count;
-	DWORD rt_funcs_max_count;
-} DynamicFunctionTableEntry;
-
-#define MONO_UNWIND_INFO_RT_FUNC_SIZE 128
-
 static gboolean g_dyn_func_table_inited;
 
 // Dynamic function table used when registering unwind info in OS.
@@ -911,27 +899,12 @@ static SRWLOCK g_dynamic_function_table_lock = SRWLOCK_INIT;
 // Module handle used when explicit loading ntdll.
 HMODULE g_ntdll;
 
-// On Win8/WinServer2012 and later we can use dynamic growable function tables
-// instead of RtlInstallFunctionTableCallback. This gives us the benefit to
-// include all needed unwind upon registration.
-typedef DWORD (NTAPI* RtlAddGrowableFunctionTablePtr)(
-    _Out_ PVOID * DynamicTable,
-    _In_reads_(MaximumEntryCount) PRUNTIME_FUNCTION FunctionTable,
-    _In_ DWORD EntryCount,
-    _In_ DWORD MaximumEntryCount,
-    _In_ ULONG_PTR RangeBase,
-    _In_ ULONG_PTR RangeEnd);
-
-typedef VOID (NTAPI* RtlGrowFunctionTablePtr)(
-    _Inout_ PVOID DynamicTable,
-    _In_ DWORD NewEntryCount);
-
-typedef VOID (NTAPI* RtlDeleteGrowableFunctionTablePtr)(
-    _In_ PVOID DynamicTable);
-
 static RtlAddGrowableFunctionTablePtr g_rtl_add_growable_function_table;
 static RtlGrowFunctionTablePtr g_rtl_grow_function_table;
 static RtlDeleteGrowableFunctionTablePtr g_rtl_delete_growable_function_table;
+
+#define MONO_DAC_MODULE L"mono-2.0-sgen.dll"
+#define MONO_DAC_MODULE_MAX_PATH 1024
 
 static void
 mono_arch_unwindinfo_init_table_no_lock (void)
@@ -1247,12 +1220,23 @@ mono_arch_unwindinfo_insert_range_in_table (const gpointer code_block, gsize blo
 										new_entry->rt_funcs_max_count, new_entry->begin_range, new_entry->end_range);
 					g_assert (!result);
 				} else {
-					// Setup "old" style callback for entry.
-					//TODO: Add dll.
+					WCHAR buffer[MONO_DAC_MODULE_MAX_PATH] = { 0 };
+					WCHAR *path = buffer;
+
+					GetModuleFileNameW (NULL, buffer, G_N_ELEMENTS (buffer));
+					path = wcsrchr (buffer, '\\');
+					if (path != NULL) {
+						path++;
+						*path = L'\0';
+					}
+
+					wcscat_s (buffer, G_N_ELEMENTS (buffer), MONO_DAC_MODULE);
+					path = buffer;
+
 					new_entry->handle = (PVOID)((DWORD64)(new_entry->begin_range) | 3);
 					BOOLEAN result = RtlInstallFunctionTableCallback ((DWORD64)(new_entry->handle),
 										(DWORD64)(new_entry->begin_range), (DWORD)(new_entry->end_range - new_entry->begin_range),
-										MONO_GET_RUNTIME_FUNCTION_CALLBACK, new_entry, NULL);
+										MONO_GET_RUNTIME_FUNCTION_CALLBACK, new_entry, path);
 					g_assert(result);
 				}
 

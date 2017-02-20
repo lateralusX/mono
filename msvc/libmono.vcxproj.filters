@@ -15,6 +15,9 @@
     <ClCompile Include="..\mono\mini\mini-windows-dllmain.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\mono\mini\mini-windows-dlldac.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="mono.def">

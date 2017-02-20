@@ -47,6 +47,36 @@ void win32_seh_set_handler(int type, MonoW32ExceptionHandler handler);
 
 LONG CALLBACK seh_handler(EXCEPTION_POINTERS* ep);
 
+typedef struct {
+	SRWLOCK lock;
+	PVOID handle;
+	gsize begin_range;
+	gsize end_range;
+	PRUNTIME_FUNCTION rt_funcs;
+	DWORD rt_funcs_current_count;
+	DWORD rt_funcs_max_count;
+} DynamicFunctionTableEntry;
+
+#define MONO_UNWIND_INFO_RT_FUNC_SIZE 128
+
+// On Win8/WinServer2012 and later we can use dynamic growable function tables
+// instead of RtlInstallFunctionTableCallback. This gives us the benefit to
+// include all needed unwind upon registration.
+typedef DWORD (NTAPI* RtlAddGrowableFunctionTablePtr)(
+    _Out_ PVOID * DynamicTable,
+    _In_reads_(MaximumEntryCount) PRUNTIME_FUNCTION FunctionTable,
+    _In_ DWORD EntryCount,
+    _In_ DWORD MaximumEntryCount,
+    _In_ ULONG_PTR RangeBase,
+    _In_ ULONG_PTR RangeEnd);
+
+typedef VOID (NTAPI* RtlGrowFunctionTablePtr)(
+    _Inout_ PVOID DynamicTable,
+    _In_ DWORD NewEntryCount);
+
+typedef VOID (NTAPI* RtlDeleteGrowableFunctionTablePtr)(
+    _In_ PVOID DynamicTable);
+
 #endif /* HOST_WIN32 */
 
 #ifdef sun    // Solaris x86

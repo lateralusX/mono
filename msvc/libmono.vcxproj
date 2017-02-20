@@ -296,6 +296,7 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\mono\mini\mini-windows-dlldac.c" />
     <ClCompile Include="..\mono\mini\mini-windows-dllmain.c" />
   </ItemGroup>
   <ItemGroup>
