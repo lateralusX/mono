@@ -510,15 +510,10 @@ mono_amd64_handler_block_trampoline_helper (void);
 
 #if defined(TARGET_WIN32) && !defined(DISABLE_JIT)
 
-//void mono_arch_unwindinfo_add_push_nonvol (gpointer* monoui, MonoUnwindOp *unwind_op );
-//void mono_arch_unwindinfo_add_set_fpreg (gpointer* monoui, gpointer codebegin, gpointer nextip, guchar reg, gushort frameOffset );
-//void mono_arch_unwindinfo_add_alloc_stack (gpointer* monoui, gpointer codebegin, gpointer nextip, guint size );
-guint mono_arch_unwindinfo_get_size (gpointer *cfg);
-void mono_arch_unwindinfo_install_unwind_info (gpointer* monoui, gpointer code, guint code_size);
-
 #if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 #define MONO_ARCH_HAVE_UNWIND_TABLE 1
-
+guint mono_arch_unwindinfo_get_size (gpointer *cfg);
+void mono_arch_unwindinfo_install_unwind_info (gpointer* monoui, gpointer code, guint code_size);
 void mono_arch_code_chunk_new (void *chunk, int size);
 void mono_arch_code_chunk_destroy (void *chunk);
 #define MONO_ARCH_HAVE_CODE_CHUNK_TRACKING 1

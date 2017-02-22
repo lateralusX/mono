@@ -1,9 +1,9 @@
 #include <config.h>
+
+#if defined(HOST_WIN32) && defined(TARGET_AMD64) && !defined(DISABLE_JIT)
 #include "mono/mini/mini.h"
 #include "mono/mini/mini-amd64.h"
 #include "mono/utils/mono-publib.h"
-
-#if defined(HOST_WIN32) && !defined(DISABLE_JIT)
 #include <windows.h>
 #include <winnt.h>
 
@@ -64,5 +64,8 @@ MONO_API_EXPORT DWORD OutOfProcessFunctionTableCallback (HANDLE process, PVOID t
 	return OutOfProcessFunctionTableCallbackEx ( &read_memory, process, table_address, entries, functions);
 }
 
+#else
+
+MONO_EMPTY_SOURCE_FILE (mini_windows_dlldac);
 #endif
 

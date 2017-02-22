@@ -885,7 +885,181 @@ mono_arch_exceptions_init (void)
 	}
 }
 
-#if defined(TARGET_WIN32) && !defined(DISABLE_JIT)
+#ifdef MONO_ARCH_HAVE_UNWIND_TABLE
+/*
+ * The mono_arch_unwindinfo* methods are used to build and add
+ * function table info for each emitted method from mono.  On Winx64
+ * the seh handler will not be called if the mono methods are not
+ * added to the function table.
+ *
+ * We should not need to add non-volatile register info to the
+ * table since mono stores that info elsewhere. (Except for the register
+ * used for the fp.)
+ */
+
+#define MONO_MAX_UNWIND_CODES 22
+
+typedef enum _UNWIND_OP_CODES {
+    UWOP_PUSH_NONVOL = 0, /* info == register number */
+    UWOP_ALLOC_LARGE,     /* no info, alloc size in next 2 slots */
+    UWOP_ALLOC_SMALL,     /* info == size of allocation / 8 - 1 */
+    UWOP_SET_FPREG,       /* no info, FP = RSP + UNWIND_INFO.FPRegOffset*16 */
+    UWOP_SAVE_NONVOL,     /* info == register number, offset in next slot */
+    UWOP_SAVE_NONVOL_FAR, /* info == register number, offset in next 2 slots */
+    UWOP_SAVE_XMM128,     /* info == XMM reg number, offset in next slot */
+    UWOP_SAVE_XMM128_FAR, /* info == XMM reg number, offset in next 2 slots */
+    UWOP_PUSH_MACHFRAME   /* info == 0: no error-code, 1: error-code */
+} UNWIND_CODE_OPS;
+
+typedef union _UNWIND_CODE {
+    struct {
+        guchar CodeOffset;
+        guchar UnwindOp : 4;
+        guchar OpInfo   : 4;
+    };
+    gushort FrameOffset;
+} UNWIND_CODE, *PUNWIND_CODE;
+
+typedef struct _UNWIND_INFO {
+	guchar Version       : 3;
+	guchar Flags         : 5;
+	guchar SizeOfProlog;
+	guchar CountOfCodes;
+	guchar FrameRegister : 4;
+	guchar FrameOffset   : 4;
+	UNWIND_CODE UnwindCode[MONO_MAX_UNWIND_CODES];
+/*	UNWIND_CODE MoreUnwindCode[((CountOfCodes + 1) & ~1) - 1];
+ *	union {
+ *		OPTIONAL ULONG ExceptionHandler;
+ *		OPTIONAL ULONG FunctionEntry;
+ *	};
+ *	OPTIONAL ULONG ExceptionData[]; */
+} UNWIND_INFO, *PUNWIND_INFO;
+
+typedef struct
+{
+	UNWIND_INFO unwindInfo;
+} MonoUnwindInfo, *PMonoUnwindInfo;
+
+static void
+mono_arch_unwindinfo_create (gpointer* monoui)
+{
+	PMonoUnwindInfo newunwindinfo;
+	*monoui = newunwindinfo = g_new0 (MonoUnwindInfo, 1);
+	newunwindinfo->unwindInfo.Version = 1;
+}
+
+void
+mono_arch_unwindinfo_add_push_nonvol (PMonoUnwindInfo unwindinfo, MonoUnwindOp *unwind_op)
+{
+	PUNWIND_CODE unwindcode;
+	guchar codeindex;
+
+	g_assert (unwindinfo != NULL);
+
+	if (unwindinfo->unwindInfo.CountOfCodes >= MONO_MAX_UNWIND_CODES)
+		g_error ("Larger allocation needed for the unwind information.");
+
+	codeindex = MONO_MAX_UNWIND_CODES - (++unwindinfo->unwindInfo.CountOfCodes);
+	unwindcode = &unwindinfo->unwindInfo.UnwindCode[codeindex];
+	unwindcode->UnwindOp = UWOP_PUSH_NONVOL;
+	unwindcode->CodeOffset = (guchar)unwind_op->when;
+	unwindcode->OpInfo = unwind_op->reg;
+
+	if (unwindinfo->unwindInfo.SizeOfProlog >= unwindcode->CodeOffset)
+		g_error ("Adding unwind info in wrong order.");
+
+	unwindinfo->unwindInfo.SizeOfProlog = unwindcode->CodeOffset;
+}
+
+void
+mono_arch_unwindinfo_add_set_fpreg (PMonoUnwindInfo unwindinfo, MonoUnwindOp *unwind_op)
+{
+	PUNWIND_CODE unwindcode;
+	guchar codeindex;
+
+	g_assert (unwindinfo != NULL);
+
+	if (unwindinfo->unwindInfo.CountOfCodes + 1 >= MONO_MAX_UNWIND_CODES)
+		g_error ("Larger allocation needed for the unwind information.");
+
+	codeindex = MONO_MAX_UNWIND_CODES - (++unwindinfo->unwindInfo.CountOfCodes);
+	unwindcode = &unwindinfo->unwindInfo.UnwindCode[codeindex];
+	unwindcode->UnwindOp = UWOP_SET_FPREG;
+	unwindcode->CodeOffset = (guchar)unwind_op->when;
+
+	g_assert(unwind_op->val % 16 == 0);
+	unwindinfo->unwindInfo.FrameRegister = unwind_op->reg;
+	unwindinfo->unwindInfo.FrameOffset = unwind_op->val / 16;
+
+	if (unwindinfo->unwindInfo.SizeOfProlog >= unwindcode->CodeOffset)
+		g_error ("Adding unwind info in wrong order.");
+
+	unwindinfo->unwindInfo.SizeOfProlog = unwindcode->CodeOffset;
+}
+
+void
+mono_arch_unwindinfo_add_alloc_stack (PMonoUnwindInfo unwindinfo, MonoUnwindOp *unwind_op)
+{
+	PUNWIND_CODE unwindcode;
+	guchar codeindex;
+	guchar codesneeded;
+	guint size;
+
+	g_assert (unwindinfo != NULL);
+
+	size = unwind_op->val;
+
+	if (size < 0x8)
+		g_error ("Stack allocation must be equal to or greater than 0x8.");
+
+	if (size <= 0x80)
+		codesneeded = 1;
+	else if (size <= 0x7FFF8)
+		codesneeded = 2;
+	else
+		codesneeded = 3;
+
+	if (unwindinfo->unwindInfo.CountOfCodes + codesneeded > MONO_MAX_UNWIND_CODES)
+		g_error ("Larger allocation needed for the unwind information.");
+
+	codeindex = MONO_MAX_UNWIND_CODES - (unwindinfo->unwindInfo.CountOfCodes += codesneeded);
+	unwindcode = &unwindinfo->unwindInfo.UnwindCode[codeindex];
+
+	unwindcode->CodeOffset = (guchar)unwind_op->when;
+
+	if (codesneeded == 1) {
+		/*The size of the allocation is
+		  (the number in the OpInfo member) times 8 plus 8*/
+		unwindcode->UnwindOp = UWOP_ALLOC_SMALL;
+		unwindcode->OpInfo = (size - 8)/8;
+	}
+	else {
+		if (codesneeded == 3) {
+			/*the unscaled size of the allocation is recorded
+			  in the next two slots in little-endian format
+			  NOTE, the order needs to be reversed in the array.
+			  Unwindcodes will be copied in reversed order before used. */
+			unwindcode->UnwindOp = UWOP_ALLOC_LARGE;
+			unwindcode->OpInfo = 1;
+			*((unsigned int*)(&(unwindcode + 2)->FrameOffset)) = size;
+		}
+		else {
+			/*the size of the allocation divided by 8
+			  is recorded in the next slot
+			  NOTE, the order needs to be reversed in the array.
+			  Unwindcodes will be copied in reversed order before used. */
+			unwindcode->UnwindOp = UWOP_ALLOC_LARGE;
+			unwindcode->OpInfo = 0;
+			(unwindcode + 1)->FrameOffset = size/8;
+		}
+	}
+
+	if (unwindinfo->unwindInfo.SizeOfProlog >= unwindcode->CodeOffset)
+		g_error ("Adding unwind info in wrong order.");
+
+	unwindinfo->unwindInfo.SizeOfProlog = unwindcode->CodeOffset;
+}
 
 static gboolean g_dyn_func_table_inited;
 
@@ -1508,182 +1682,6 @@ mono_arch_unwindinfo_insert_rt_func_in_table (const gpointer code, gsize code_si
 	return new_rt_func;
 }
 
-/*
- * The mono_arch_unwindinfo* methods are used to build and add
- * function table info for each emitted method from mono.  On Winx64
- * the seh handler will not be called if the mono methods are not
- * added to the function table.
- *
- * We should not need to add non-volatile register info to the
- * table since mono stores that info elsewhere. (Except for the register
- * used for the fp.)
- */
-
-#define MONO_MAX_UNWIND_CODES 22
-
-typedef enum _UNWIND_OP_CODES {
-    UWOP_PUSH_NONVOL = 0, /* info == register number */
-    UWOP_ALLOC_LARGE,     /* no info, alloc size in next 2 slots */
-    UWOP_ALLOC_SMALL,     /* info == size of allocation / 8 - 1 */
-    UWOP_SET_FPREG,       /* no info, FP = RSP + UNWIND_INFO.FPRegOffset*16 */
-    UWOP_SAVE_NONVOL,     /* info == register number, offset in next slot */
-    UWOP_SAVE_NONVOL_FAR, /* info == register number, offset in next 2 slots */
-    UWOP_SAVE_XMM128,     /* info == XMM reg number, offset in next slot */
-    UWOP_SAVE_XMM128_FAR, /* info == XMM reg number, offset in next 2 slots */
-    UWOP_PUSH_MACHFRAME   /* info == 0: no error-code, 1: error-code */
-} UNWIND_CODE_OPS;
-
-typedef union _UNWIND_CODE {
-    struct {
-        guchar CodeOffset;
-        guchar UnwindOp : 4;
-        guchar OpInfo   : 4;
-    };
-    gushort FrameOffset;
-} UNWIND_CODE, *PUNWIND_CODE;
-
-typedef struct _UNWIND_INFO {
-	guchar Version       : 3;
-	guchar Flags         : 5;
-	guchar SizeOfProlog;
-	guchar CountOfCodes;
-	guchar FrameRegister : 4;
-	guchar FrameOffset   : 4;
-	UNWIND_CODE UnwindCode[MONO_MAX_UNWIND_CODES];
-/*	UNWIND_CODE MoreUnwindCode[((CountOfCodes + 1) & ~1) - 1];
- *	union {
- *		OPTIONAL ULONG ExceptionHandler;
- *		OPTIONAL ULONG FunctionEntry;
- *	};
- *	OPTIONAL ULONG ExceptionData[]; */
-} UNWIND_INFO, *PUNWIND_INFO;
-
-typedef struct
-{
-	UNWIND_INFO unwindInfo;
-} MonoUnwindInfo, *PMonoUnwindInfo;
-
-static void
-mono_arch_unwindinfo_create (gpointer* monoui)
-{
-	PMonoUnwindInfo newunwindinfo;
-	*monoui = newunwindinfo = g_new0 (MonoUnwindInfo, 1);
-	newunwindinfo->unwindInfo.Version = 1;
-}
-
-void
-mono_arch_unwindinfo_add_push_nonvol (PMonoUnwindInfo unwindinfo, MonoUnwindOp *unwind_op)
-{
-	PUNWIND_CODE unwindcode;
-	guchar codeindex;
-
-	g_assert (unwindinfo != NULL);
-
-	if (unwindinfo->unwindInfo.CountOfCodes >= MONO_MAX_UNWIND_CODES)
-		g_error ("Larger allocation needed for the unwind information.");
-
-	codeindex = MONO_MAX_UNWIND_CODES - (++unwindinfo->unwindInfo.CountOfCodes);
-	unwindcode = &unwindinfo->unwindInfo.UnwindCode[codeindex];
-	unwindcode->UnwindOp = UWOP_PUSH_NONVOL;
-	unwindcode->CodeOffset = (guchar)unwind_op->when;
-	unwindcode->OpInfo = unwind_op->reg;
-
-	if (unwindinfo->unwindInfo.SizeOfProlog >= unwindcode->CodeOffset)
-		g_error ("Adding unwind info in wrong order.");
-
-	unwindinfo->unwindInfo.SizeOfProlog = unwindcode->CodeOffset;
-}
-
-void
-mono_arch_unwindinfo_add_set_fpreg (PMonoUnwindInfo unwindinfo, MonoUnwindOp *unwind_op)
-{
-	PUNWIND_CODE unwindcode;
-	guchar codeindex;
-
-	g_assert (unwindinfo != NULL);
-
-	if (unwindinfo->unwindInfo.CountOfCodes + 1 >= MONO_MAX_UNWIND_CODES)
-		g_error ("Larger allocation needed for the unwind information.");
-
-	codeindex = MONO_MAX_UNWIND_CODES - (++unwindinfo->unwindInfo.CountOfCodes);
-	unwindcode = &unwindinfo->unwindInfo.UnwindCode[codeindex];
-	unwindcode->UnwindOp = UWOP_SET_FPREG;
-	unwindcode->CodeOffset = (guchar)unwind_op->when;
-
-	g_assert(unwind_op->val % 16 == 0);
-	unwindinfo->unwindInfo.FrameRegister = unwind_op->reg;
-	unwindinfo->unwindInfo.FrameOffset = unwind_op->val / 16;
-
-	if (unwindinfo->unwindInfo.SizeOfProlog >= unwindcode->CodeOffset)
-		g_error ("Adding unwind info in wrong order.");
-
-	unwindinfo->unwindInfo.SizeOfProlog = unwindcode->CodeOffset;
-}
-
-void
-mono_arch_unwindinfo_add_alloc_stack (PMonoUnwindInfo unwindinfo, MonoUnwindOp *unwind_op)
-{
-	PUNWIND_CODE unwindcode;
-	guchar codeindex;
-	guchar codesneeded;
-	guint size;
-
-	g_assert (unwindinfo != NULL);
-
-	size = unwind_op->val;
-
-	if (size < 0x8)
-		g_error ("Stack allocation must be equal to or greater than 0x8.");
-
-	if (size <= 0x80)
-		codesneeded = 1;
-	else if (size <= 0x7FFF8)
-		codesneeded = 2;
-	else
-		codesneeded = 3;
-
-	if (unwindinfo->unwindInfo.CountOfCodes + codesneeded > MONO_MAX_UNWIND_CODES)
-		g_error ("Larger allocation needed for the unwind information.");
-
-	codeindex = MONO_MAX_UNWIND_CODES - (unwindinfo->unwindInfo.CountOfCodes += codesneeded);
-	unwindcode = &unwindinfo->unwindInfo.UnwindCode[codeindex];
-
-	unwindcode->CodeOffset = (guchar)unwind_op->when;
-
-	if (codesneeded == 1) {
-		/*The size of the allocation is
-		  (the number in the OpInfo member) times 8 plus 8*/
-		unwindcode->UnwindOp = UWOP_ALLOC_SMALL;
-		unwindcode->OpInfo = (size - 8)/8;
-	}
-	else {
-		if (codesneeded == 3) {
-			/*the unscaled size of the allocation is recorded
-			  in the next two slots in little-endian format
-			  NOTE, the order needs to be reversed in the array.
-			  Unwindcodes will be copied in reversed order before used. */
-			unwindcode->UnwindOp = UWOP_ALLOC_LARGE;
-			unwindcode->OpInfo = 1;
-			*((unsigned int*)(&(unwindcode + 2)->FrameOffset)) = size;
-		}
-		else {
-			/*the size of the allocation divided by 8
-			  is recorded in the next slot
-			  NOTE, the order needs to be reversed in the array.
-			  Unwindcodes will be copied in reversed order before used. */
-			unwindcode->UnwindOp = UWOP_ALLOC_LARGE;
-			unwindcode->OpInfo = 0;
-			(unwindcode + 1)->FrameOffset = size/8;
-		}
-	}
-
-	if (unwindinfo->unwindInfo.SizeOfProlog >= unwindcode->CodeOffset)
-		g_error ("Adding unwind info in wrong order.");
-
-	unwindinfo->unwindInfo.SizeOfProlog = unwindcode->CodeOffset;
-}
-
-#ifdef MONO_ARCH_HAVE_UNWIND_TABLE
 guint
 mono_arch_unwindinfo_get_size (gpointer *cfg)
 {
@@ -1781,8 +1779,6 @@ void mono_arch_code_chunk_destroy (void *chunk)
 	mono_arch_unwindinfo_remove_pc_range_in_table (chunk);
 }
 #endif /* MONO_ARCH_HAVE_UNWIND_TABLE */
-
-#endif /* defined(TARGET_WIN32) !defined(DISABLE_JIT) */
 
 #if MONO_SUPPORT_TASKLETS && !defined(DISABLE_JIT)
 MonoContinuationRestore
