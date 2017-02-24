@@ -6643,7 +6643,6 @@ mono_arch_emit_prolog_push_nonvol_win64 (MonoCompile *cfg, guint8 *code, int *cf
 			amd64_push_reg (code, AMD64_R13);
 			cfa_offset += 8;
 
-			mono_emit_unwind_op_def_cfa_offset (cfg, code, cfa_offset);
 			mono_emit_unwind_op_offset (cfg, code, AMD64_R13, - cfa_offset);
 			async_exc_point (code);
 
@@ -6652,7 +6651,6 @@ mono_arch_emit_prolog_push_nonvol_win64 (MonoCompile *cfg, guint8 *code, int *cf
 			amd64_push_reg (code, AMD64_R15);
 			cfa_offset += 8;
 
-			mono_emit_unwind_op_def_cfa_offset (cfg, code, cfa_offset);
 			mono_emit_unwind_op_offset (cfg, code, AMD64_R15, - cfa_offset);
 			async_exc_point (code);
 
