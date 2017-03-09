@@ -10,6 +10,7 @@
 
 #include <mono/metadata/appdomain.h>
 #include <mono/metadata/metadata-internals.h>
+#include <mono/metadata/reflection-internals.h>
 #include <mono/metadata/marshal.h>
 #include <mono/metadata/tabledefs.h>
 #include <mono/utils/mono-counters.h>
@@ -841,6 +842,56 @@ mono_magic_trampoline (mgreg_t *regs, guint8 *code, gpointer arg, guint8* tramp)
 	return res;
 }
 
+static gpointer
+mono_vcall_resolve_vtable_slot (MonoVTable *vt, int slot, gpointer **vtable_slot_out, MonoMethod **m_out, MonoError *error)
+{
+	gpointer *vtable_slot = NULL;
+	MonoMethod *m = NULL;
+	gpointer addr = NULL;
+	gpointer ftnptr = NULL;
+
+	if (slot >= 0) {
+		/* Normal virtual call */
+		vtable_slot = &(vt->vtable [slot]);
+
+		/* Avoid loading metadata or creating a generic vtable if possible */
+		addr = mono_aot_get_method_from_vt_slot (mono_domain_get (), vt, slot, error);
+		if (is_ok (error)) {
+			if (addr && !vt->klass->valuetype) {
+				if (mono_domain_owns_vtable_slot (mono_domain_get (), vtable_slot))
+					*vtable_slot = addr;
+
+				ftnptr = mono_create_ftnptr (mono_domain_get (), addr);
+			} else {
+				/*
+				 * Bug #616463 (see
+				 * is_generic_method_definition() above) also
+				 * goes away if we do a
+				 * mono_class_setup_vtable (vt->klass) here,
+				 * because we then inflate the method
+				 * correctly, put it in the cache, and the
+				 * "wrong" inflation invocation still looks up
+				 * the correctly inflated method.
+				 *
+				 * The hack above seems more stable and
+				 * trustworthy.
+				 */
+				m = mono_class_get_vtable_entry (vt->klass, slot);
+			}
+		}
+	} else {
+		/* IMT call */
+		vtable_slot = &(((gpointer*)vt) [slot]);
+
+		m = NULL;
+	}
+
+	*vtable_slot_out = vtable_slot;
+	*m_out  = m;
+
+	return ftnptr;
+}
+
 /**
  * mono_vcall_trampoline:
  *
@@ -876,40 +927,56 @@ mono_vcall_trampoline (mgreg_t *regs, guint8 *code, int slot, guint8 *tramp)
 
 	vt = this_arg->vtable;
 
-	if (slot >= 0) {
-		/* Normal virtual call */
-		vtable_slot = &(vt->vtable [slot]);
+	gpointer ftnptr = mono_vcall_resolve_vtable_slot (vt, slot, &vtable_slot, &m, &error);
+	if (ftnptr != NULL)
+		return ftnptr;
 
-		/* Avoid loading metadata or creating a generic vtable if possible */
-		addr = mono_aot_get_method_from_vt_slot (mono_domain_get (), vt, slot, &error);
-		if (!is_ok (&error))
-			goto leave;
-		if (addr && !vt->klass->valuetype) {
-			if (mono_domain_owns_vtable_slot (mono_domain_get (), vtable_slot))
-				*vtable_slot = addr;
+	if (m == NULL && vt->is_icastable) {
+		static MonoMethod *is_instance_of_interface = NULL;
+		static MonoMethod *get_impl_type = NULL;
+		static MonoMethod *helper_get_impl_type = NULL;
 
-			return mono_create_ftnptr (mono_domain_get (), addr);
+		if (is_instance_of_interface == NULL) {
+			is_instance_of_interface = mono_class_get_method_from_name (mono_defaults.icastable_class, "IsInstanceOfInterface", 2);
 		}
 
-		/*
-		 * Bug #616463 (see
-		 * is_generic_method_definition() above) also
-		 * goes away if we do a
-		 * mono_class_setup_vtable (vt->klass) here,
-		 * because we then inflate the method
-		 * correctly, put it in the cache, and the
-		 * "wrong" inflation invocation still looks up
-		 * the correctly inflated method.
-		 *
-		 * The hack above seems more stable and
-		 * trustworthy.
-		 */
-		m = mono_class_get_vtable_entry (vt->klass, slot);
-	} else {
-		/* IMT call */
-		vtable_slot = &(((gpointer*)vt) [slot]);
+		if (get_impl_type == NULL) {
+			get_impl_type = mono_class_get_method_from_name (mono_defaults.icastable_class, "GetImplType", 1);
+		}
+		
+		MonoMethod *method = mono_arch_find_imt_method (regs, code);
+		g_assert (method != NULL);
+		if (method != is_instance_of_interface && method != get_impl_type) {
+			MonoReflectionTypeHandle ref_type = mono_type_get_object_handle (mono_domain_get (), &(method->klass->byval_arg), &error);
+			if (!is_ok (&error))
+				goto leave;
 
-		m = NULL;
+			MonoObject *cast_exception = NULL;
+			void *args[2];
+			args[0] = this_arg;
+			args[1] = MONO_HANDLE_RAW (ref_type);
+
+			if (helper_get_impl_type == NULL) {
+				helper_get_impl_type = mono_class_get_method_from_name (mono_defaults.icastablehelpers_class, "GetImplType", 2);
+			}
+
+			MonoReflectionType *cast_ref_type = (MonoReflectionType *)mono_runtime_invoke_checked (helper_get_impl_type, NULL, args, &error);
+			if (!is_ok (&error))
+				goto leave;
+
+			if (cast_ref_type != NULL) {
+				MonoClass *impl_type = mono_class_from_mono_type (cast_ref_type->type);
+				if (impl_type != NULL) {
+					MonoVTable *impl_type_vt = mono_class_vtable (mono_domain_get (), impl_type);
+					gpointer *impl_type_vtable_slot;
+					MonoMethod *impl_type_m;
+					mono_vcall_resolve_vtable_slot (impl_type_vt, slot, &impl_type_vtable_slot, &impl_type_m, &error);
+					res = common_call_trampoline (regs, code, impl_type_m, impl_type_vt, impl_type_vtable_slot, &error);
+					*vtable_slot = *impl_type_vtable_slot;
+					goto leave;
+				}
+			}
+		}
 	}
 
 	res = common_call_trampoline (regs, code, m, vt, vtable_slot, &error);

@@ -2100,6 +2100,9 @@ mono_class_create_runtime_vtable (MonoDomain *domain, MonoClass *klass, MonoErro
 
 	mono_vtable_set_is_remote (vt, mono_class_is_contextbound (klass));
 
+	if (MONO_VTABLE_IMPLEMENTS_INTERFACE (vt, mono_defaults.icastable_class->interface_id))
+		vt->is_icastable = 1;
+
 	/*  class_vtable_array keeps an array of created vtables
 	 */
 	g_ptr_array_add (domain->class_vtable_array, vt);
@@ -6530,8 +6533,37 @@ mono_object_handle_isinst_mbyref (MonoObjectHandle obj, MonoClass *klass, MonoEr
 				goto leave;
 			}
 		}
+		else if (vt->is_icastable) {
+			static MonoMethod *helper_cast_to_impl_type = NULL;
+			MonoReflectionTypeHandle ref_type = mono_type_get_object_handle (mono_domain_get (), &klass->byval_arg, error);
+			if (!is_ok (error))
+				goto leave;
 
-		/*If the above check fails we are in the slow path of possibly raising an exception. So it's ok to it this way.*/
+			MonoObject *cast_exception = NULL;
+			gpointer args[3];
+			args[0] = MONO_HANDLE_RAW (obj);
+			args[1] = MONO_HANDLE_RAW (ref_type);
+			args[2] = &cast_exception;
+
+			if (helper_cast_to_impl_type == NULL) {
+				helper_cast_to_impl_type = mono_class_get_method_from_name (mono_defaults.icastablehelpers_class, "CastToImplType", 3);
+			}
+
+			MonoReflectionType *cast_ref_type = (MonoReflectionType *)mono_runtime_invoke_checked (helper_cast_to_impl_type, NULL, args, error);
+			if (!is_ok (error))
+				goto leave;
+
+			if (cast_ref_type != NULL) {
+				MonoClass *impl_type = mono_class_from_mono_type (cast_ref_type->type);
+				if (impl_type != NULL) {
+					MONO_HANDLE_SETVAL (obj, vtable, MonoVTable*, mono_class_vtable (mono_domain_get (), impl_type));
+					MONO_HANDLE_ASSIGN (result, obj);
+				}
+			}
+
+			goto leave;
+		}
+		/*If the above checks failed we are in the slow path of possibly raising an exception. So it's ok to it this way.*/
 		else if (mono_class_has_variant_generic_params (klass) && mono_class_is_assignable_from (klass, mono_handle_class (obj))) {
 			MONO_HANDLE_ASSIGN (result, obj);
 			goto leave;

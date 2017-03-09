@@ -463,6 +463,7 @@ struct MonoVTable {
 	guint remote          : 1; /* class is remotely activated */
 	guint init_failed     : 1; /* cctor execution failed */
 	guint has_static_fields : 1; /* pointer to the data stored at the end of the vtable array */
+	guint is_icastable : 1; /* implements ICastable interface */
 	guint gc_bits         : MONO_VTABLE_AVAILABLE_GC_BITS; /* Those bits are reserved for the usaged of the GC */
 
 	guint32     imt_collisions_bitmap;
@@ -1110,6 +1111,8 @@ typedef struct {
 	MonoClass *critical_finalizer_object; /* MAYBE NULL */
 	MonoClass *generic_ireadonlylist_class;
 	MonoClass *threadpool_wait_callback_class;
+	MonoClass *icastable_class;
+	MonoClass *icastablehelpers_class;
 	MonoMethod *threadpool_perform_wait_callback_method;
 } MonoDefaults;
 
