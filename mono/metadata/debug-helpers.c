@@ -1187,3 +1187,207 @@ mono_method_print_code (MonoMethod *method)
 	printf ("CODE FOR %s:\n%s\n", mono_method_full_name (method, TRUE), code);
 	g_free (code);
 }
+
+#ifdef HOST_WIN32
+#include "dbghelp.h"
+#endif
+
+typedef gint (*MonoDebugPrintFunction)(gchar const *format, ...);
+
+gint
+mono_debug_print_console (gchar const *format, ...)
+{
+	gchar *buffer;
+	va_list args;
+	gint ret;
+
+	va_start (args, format);
+	ret = g_vasprintf (&buffer, format, args);
+	va_end (args);
+
+	g_printf ("%s", buffer);
+	g_free (buffer);
+
+	return ret;
+}
+
+#ifdef HOST_WIN32
+gint
+mono_debug_print_dbg_window (gchar const *format, ...)
+{
+	gchar *buffer;
+	va_list args;
+	gint ret;
+
+	va_start (args, format);
+	ret = g_vasprintf (&buffer, format, args);
+	va_end (args);
+
+	OutputDebugStringA (buffer);
+	g_free (buffer);
+
+	return ret;
+}
+#endif
+
+inline MonoDebugPrintFunction
+mono_get_debug_print_function ()
+{
+#ifdef HOST_WIN32
+	if (IsDebuggerPresent ()) {
+		return mono_debug_print_dbg_window;
+	}
+#endif
+
+	return mono_debug_print_console;
+}
+
+mono_bool mono_clr_stack_full_method_name_callback (MonoMethod *method, int32_t native_offset, int32_t il_offset, mono_bool managed, void *data)
+{
+	GList *items = *(GList **)(data);
+	g_list_append (items, mono_method_get_full_name (method));
+	return FALSE;
+}
+
+mono_bool mono_clr_stack_method_name_callback (MonoMethod *method, int32_t native_offset, int32_t il_offset, mono_bool managed, void *data)
+{
+	GList *items = *(GList **)(data);
+	g_list_append (items, mono_method_full_name (method, FALSE));
+	return FALSE;
+}
+
+mono_bool mono_clr_stack_short_method_name_callback (MonoMethod *method, int32_t native_offset, int32_t il_offset, mono_bool managed, void *data)
+{
+	GList *items = *(GList **)(data);
+	g_list_append (items, g_strdup (method->name));
+	return FALSE;
+}
+
+G_GNUC_UNUSED static void
+mono_clr_stack_internal (guint thread_id, MonoStackWalk callback)
+{
+	MonoDebugPrintFunction debug_print = mono_get_debug_print_function ();
+	if (thread_id != 0 && mono_native_thread_id_get () != thread_id) {
+		debug_print ("mono_clr_stack currently only supports current thread.\n");
+		return;
+	}
+
+	GList *items = g_list_alloc ();
+	
+	mono_stack_walk_no_il (callback, &items);
+
+	GList *item = items;
+	while (item){
+		if (item->data != NULL) {
+			debug_print ("%s\n", (const char *)item->data);
+			g_free (item->data);
+		}
+		item = item->next;
+	}
+
+	g_list_free (items);
+}
+
+G_GNUC_UNUSED void
+mono_clr_stack_full_for_thread (guint thread_id)
+{
+	mono_clr_stack_internal (thread_id, mono_clr_stack_full_method_name_callback);
+}
+
+G_GNUC_UNUSED void
+mono_clr_stack_full ()
+{
+	mono_clr_stack_full_for_thread (0);
+}
+
+G_GNUC_UNUSED void
+mono_clr_stack_for_thread (guint thread_id)
+{
+	mono_clr_stack_internal (thread_id, mono_clr_stack_method_name_callback);
+}
+
+G_GNUC_UNUSED void
+mono_clr_stack ()
+{
+	mono_clr_stack_for_thread (0);
+}
+
+G_GNUC_UNUSED void
+mono_clr_stack_short_for_thread (guint thread_id)
+{
+	mono_clr_stack_internal (thread_id, mono_clr_stack_short_method_name_callback);
+}
+
+G_GNUC_UNUSED void
+mono_clr_stack_short ()
+{
+	mono_clr_stack_short_for_thread (0);
+}
+
+G_GNUC_UNUSED static void
+mono_dump_stack_internal (guint thread_id)
+{
+	MonoDebugPrintFunction debug_print = mono_get_debug_print_function ();
+	debug_print ("mono_dump_stack currently not supported.\n");
+	return;
+
+#ifdef HOST_WIN32
+	CONTEXT thread_context = {0};
+	HANDLE thread_handle = INVALID_HANDLE_VALUE;
+
+	if (GetCurrentThreadId() == thread_id || thread_id == 0) {
+		thread_handle = GetCurrentThread ();
+		RtlCaptureContext (&thread_context);
+	} else {
+		thread_handle = OpenThread (THREAD_GET_CONTEXT, FALSE, thread_id);
+		if (thread_handle == INVALID_HANDLE_VALUE) {
+			return;
+		}
+
+		if (!GetThreadContext (thread_handle, &thread_context)) {
+			CloseHandle (thread_handle);
+			return;
+		}
+	}
+
+	STACKFRAME64 next_frame = {0};
+	
+	next_frame.AddrPC.Offset = thread_context.Rip;
+	next_frame.AddrFrame.Offset = thread_context.Rsp;
+	next_frame.AddrStack.Offset = thread_context.Rsp;
+	next_frame.AddrPC.Mode = AddrModeFlat;
+	next_frame.AddrFrame.Mode = AddrModeFlat;
+	next_frame.AddrStack.Mode = AddrModeFlat;
+
+	//Test to use function table access function to return unwind info.
+	//Test module to resolve JIT methods to start of dynamic runtime tables.
+	//while (StackWalk64 (IMAGE_FILE_MACHINE_AMD64,
+	//					GetCurrentProcess (),
+	//					thread_handle,
+	//					&next_frame,
+	//					&thread_context,
+	//					NULL,
+	//					SymFunctionTableAccess64,
+	//					SymGetModuleBase64,
+	//					NULL)) {
+	//
+	//	// Get JIT info for frame, if available.
+	//	// Dump JIT info if available. If native frame, lookup symbol and dump.
+	//}
+		
+	CloseHandle (thread_handle);
+#endif
+	return;
+}
+
+G_GNUC_UNUSED void
+mono_dump_stack_for_thread (guint thread_id)
+{
+	mono_dump_stack_internal (thread_id);
+}
+
+G_GNUC_UNUSED void
+mono_dump_stack (void)
+{
+	mono_dump_stack_for_thread (0);
+}

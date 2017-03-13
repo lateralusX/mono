@@ -458,6 +458,44 @@ fail:
 	return NULL;
 }
 
+/* This is a JIT icall, it sets the pending exception and return NULL on error */
+gpointer
+mono_method_to_ccw_ftnptr (MonoMethod *method)
+{
+	MonoError error;
+	MonoMethod *wrapper;
+		
+	if (!method)
+		return NULL;
+
+	if (method->flags & METHOD_ATTRIBUTE_PINVOKE_IMPL) {
+		const char *exc_class, *exc_arg;
+		gpointer ftnptr;
+
+		ftnptr = mono_lookup_pinvoke_call (method, &exc_class, &exc_arg);
+		if (!ftnptr) {
+			g_assert (exc_class);
+			mono_set_pending_exception (mono_exception_from_name_msg (mono_defaults.corlib, "System", exc_class, exc_arg));
+			return NULL;
+		}
+		return ftnptr;
+	}
+
+	wrapper = mono_marshal_get_managed_ccw_wrapper (method, &error);
+	if (!is_ok (&error))
+		goto fail;
+
+	void *code = mono_compile_method_checked (wrapper, &error);
+	if (!is_ok (&error))
+		goto fail;
+
+	return code;
+
+fail:
+	mono_error_set_pending_exception (&error);
+	return NULL;
+}
+
 /* 
  * this hash table maps from a delegate trampoline object to a weak reference
  * of the delegate. As an optimizations with a non-moving GC we store the
@@ -8760,6 +8798,84 @@ mono_marshal_set_callconv_from_modopt (MonoMethod *method, MonoMethodSignature *
  * Generates IL code to call managed methods from unmanaged code 
  * If \p target_handle is \c 0, the wrapper info will be a \c WrapperInfo structure.
  */
+MonoMethod *
+mono_marshal_get_managed_ccw_wrapper (MonoMethod *method, MonoError *error)
+{
+	MonoMethodSignature *sig, *csig, *invoke_sig;
+	MonoMethodBuilder *mb;
+	MonoMethod *res;
+	MonoMarshalSpec **mspecs;
+	GHashTable *cache;
+	int i;
+	EmitMarshalContext m;
+
+	g_assert (method != NULL);
+	error_init (error);
+
+	if (method->flags & METHOD_ATTRIBUTE_PINVOKE_IMPL) {
+		mono_error_set_invalid_program (error, "Failed because method (%s) marked PInvokeCallback (managed method) and extern (unmanaged) simultaneously.", mono_method_full_name (method, TRUE));
+		return NULL;
+	}
+
+	/* 
+	 * FIXME: Should cache the method+delegate type pair, since the same method
+	 * could be called with different delegates, thus different marshalling
+	 * options.
+	 */
+	cache = get_cache (&mono_method_get_wrapper_cache (method)->managed_wrapper_cache, mono_aligned_addr_hash, NULL);
+
+	if (res = mono_marshal_find_in_cache (cache, method))
+		return res;
+
+	invoke_sig = mono_method_signature (method);
+
+	mspecs = g_new0 (MonoMarshalSpec*, mono_method_signature (method)->param_count + 1);
+	mono_method_get_marshal_info (method, mspecs);
+
+	sig = mono_method_signature (method);
+
+	mb = mono_mb_new (method->klass, method->name, MONO_WRAPPER_NATIVE_TO_MANAGED);
+
+	/*the target gchandle must be the first entry after size and the wrapper itself.*/
+	mono_mb_add_data (mb, GUINT_TO_POINTER (0));
+
+	/* we copy the signature, so that we can modify it */
+	csig = mono_metadata_signature_dup_full (method->klass->image, invoke_sig);
+	csig->hasthis = 0;
+	csig->pinvoke = 1;
+
+	memset (&m, 0, sizeof (m));
+	m.mb = mb;
+	m.sig = sig;
+	m.piinfo = NULL;
+	m.retobj_var = 0;
+	m.csig = csig;
+	m.image = method->klass->image;
+
+	mono_marshal_set_callconv_from_modopt (method, csig);
+
+	mono_marshal_emit_managed_wrapper (mb, invoke_sig, mspecs, &m, method, 0);
+
+	WrapperInfo *info;
+
+	info = mono_wrapper_info_create (mb, WRAPPER_SUBTYPE_NONE);
+	info->d.native_to_managed.method = method;
+	info->d.native_to_managed.klass = method->klass;
+
+	res = mono_mb_create_and_cache_full (cache, method,
+											mb, csig, sig->param_count + 16,
+											info, NULL);
+
+	mono_mb_free (mb);
+
+	for (i = mono_method_signature (method)->param_count; i >= 0; i--)
+		if (mspecs [i])
+			mono_metadata_free_marshal_spec (mspecs [i]);
+	g_free (mspecs);
+
+	return res;
+}
+
 MonoMethod *
 mono_marshal_get_managed_wrapper (MonoMethod *method, MonoClass *delegate_klass, uint32_t target_handle, MonoError *error)
 {

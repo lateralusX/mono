@@ -339,6 +339,9 @@ mono_marshal_get_string_ctor_signature (MonoMethod *method);
 MonoMethod *
 mono_marshal_get_managed_wrapper (MonoMethod *method, MonoClass *delegate_klass, uint32_t this_loc, MonoError *exernal_error);
 
+MonoMethod *
+mono_marshal_get_managed_ccw_wrapper (MonoMethod *method, MonoError *exernal_error);
+
 gpointer
 mono_marshal_get_vtfixup_ftnptr (MonoImage *image, guint32 token, guint16 type);
 

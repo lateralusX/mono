@@ -28,10 +28,12 @@
 #include "mini-llvm-cpp.h"
 #endif
 
+gpointer mono_method_to_ccw_ftnptr (MonoMethod *method);
+
 void*
 mono_ldftn (MonoMethod *method)
 {
-	gpointer addr;
+	gpointer addr = NULL;
 	MonoError error;
 
 	if (mono_llvm_only) {
@@ -49,11 +51,28 @@ mono_ldftn (MonoMethod *method)
 		return addr;
 	}
 
-	addr = mono_create_jump_trampoline (mono_domain_get (), method, FALSE, &error);
-	if (!mono_error_ok (&error)) {
-		mono_error_set_pending_exception (&error);
-		return NULL;
+	if (method->flags & METHOD_ATTRIBUTE_STATIC) {
+		MonoCustomAttrInfo *info = mono_custom_attrs_from_method_checked (method, &error);
+		if (info != NULL && info->num_attrs != 0) {
+			for (int i = 0; i < info->num_attrs; i++) {
+				if (!strcmp (info->attrs[i].ctor->klass->name, "NativeCallableAttribute")) {
+					//Need to create a native->managed wrapper for this mehtod.
+					addr = mono_method_to_ccw_ftnptr (method);
+					if (addr == NULL)
+						return addr;
+				}
+			}
+		}
 	}
+
+	if (addr == NULL) {
+		addr = mono_create_jump_trampoline (mono_domain_get (), method, FALSE, &error);
+		if (!mono_error_ok (&error)) {
+			mono_error_set_pending_exception (&error);
+			return NULL;
+		}
+	}
+
 	return mono_create_ftnptr (mono_domain_get (), addr);
 }
 
