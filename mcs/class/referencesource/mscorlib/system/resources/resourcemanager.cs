@@ -37,7 +37,7 @@ namespace System.Resources {
     using System.Diagnostics.Tracing;
 #endif
 
-#if FEATURE_APPX
+//#if FEATURE_APPX
     //
     // This is implemented in System.Runtime.WindowsRuntime as function System.Resources.WindowsRuntimeResourceManager,
     // allowing us to ask for a WinRT-specific ResourceManager.
@@ -83,7 +83,7 @@ namespace System.Resources {
         public string _PackageSimpleName;
         public string _ResWFile;
     }
-#endif // FEATURE_APPX
+//#endif // FEATURE_APPX
 
     // Resource Manager exposes an assembly's resources to an application for
     // the correct CultureInfo.  An example would be localizing text for a 

@@ -895,8 +895,16 @@ mono_method_get_name_full (MonoMethod *method, gboolean signature, gboolean ret,
 			sprintf (wrapper, "(wrapper %s) ", wrapper_type_to_str (method->wrapper_type));
 		else
 			strcpy (wrapper, "");
-		if (ret && sig) {
-			char *ret_str = mono_type_full_name (sig->ret);
+
+		if (ret) {
+			MonoMethodSignature *method_sig = mono_method_signature (method);
+			char *ret_str = NULL;
+
+			if (method_sig)
+				ret_str = mono_type_full_name (method_sig->ret);
+			else
+				ret_str = g_strdup (method->name);
+
 			res = g_strdup_printf ("%s%s %s:%s%s (%s)", wrapper, ret_str, klass_desc,
 								   method->name, inst_desc ? inst_desc : "", tmpsig);
 			g_free (ret_str);

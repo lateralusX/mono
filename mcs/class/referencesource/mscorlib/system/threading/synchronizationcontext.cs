@@ -43,7 +43,7 @@ namespace System.Threading
     };
 #endif
 
-#if FEATURE_COMINTEROP && FEATURE_APPX
+//#if FEATURE_COMINTEROP && FEATURE_APPX
     //
     // This is implemented in System.Runtime.WindowsRuntime, allowing us to ask that assembly for a WinRT-specific SyncCtx.
     // I'd like this to be an interface, or at least an abstract class - but neither seems to play nice with FriendAccessAllowed.
@@ -55,7 +55,7 @@ namespace System.Threading
         [SecurityCritical]
         public virtual SynchronizationContext Create(object coreDispatcher) {return null;}
     }
-#endif //FEATURE_COMINTEROP
+//#endif //FEATURE_COMINTEROP
 
 #if !FEATURE_CORECLR
     [SecurityPermissionAttribute(SecurityAction.InheritanceDemand, Flags =SecurityPermissionFlag.ControlPolicy|SecurityPermissionFlag.ControlEvidence)]
