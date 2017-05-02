@@ -61,6 +61,16 @@ namespace System.Diagnostics.Tracing
 		{
 		}
 
+		internal EventSource (Guid eventSourceGuid, string eventSourceName)
+			: this (eventSourceName)
+		{
+		}
+
+		internal EventSource (Guid eventSourceGuid, string eventSourceName, EventSourceSettings settings, string[] traits = null)
+			: this (eventSourceName, settings)
+		{
+		}
+
 		public EventSource (string eventSourceName)
 		{
 			this.Name = eventSourceName;

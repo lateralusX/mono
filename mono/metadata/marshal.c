@@ -430,10 +430,10 @@ mono_delegate_to_ftnptr (MonoDelegate *delegate)
 		return ftnptr;
 	}
 
-	if (delegate->target) {
-		/* Produce a location which can be embedded in JITted code */
-		target_handle = mono_gchandle_new_weakref (delegate->target, FALSE);
-	}
+	//if (delegate->target) {
+	//	/* Produce a location which can be embedded in JITted code */
+	//	target_handle = mono_gchandle_new_weakref (delegate->target, FALSE);
+	//}
 
 	wrapper = mono_marshal_get_managed_wrapper (method, klass, target_handle, &error);
 	if (!is_ok (&error))
@@ -8571,7 +8571,10 @@ mono_marshal_emit_managed_wrapper (MonoMethodBuilder *mb, MonoMethodSignature *i
 			mono_mb_emit_icall (mb, mono_gchandle_get_target);
 		} else {
 			/* fixme: */
-			g_assert_not_reached ();
+			// Should fetch from RGCTX.
+			//g_assert_not_reached ();
+			mono_mb_emit_icon (mb, (gint32)0);
+			mono_mb_emit_icall (mb, mono_gchandle_get_target);
 		}
 	} else if (closed) {
 		mono_mb_emit_icon (mb, (gint32)target_handle);
@@ -8860,7 +8863,7 @@ mono_marshal_get_managed_ccw_wrapper (MonoMethod *method, MonoError *error)
 
 	info = mono_wrapper_info_create (mb, WRAPPER_SUBTYPE_NONE);
 	info->d.native_to_managed.method = method;
-	info->d.native_to_managed.klass = method->klass;
+	info->d.native_to_managed.klass = mono_defaults.icastable_class;
 
 	res = mono_mb_create_and_cache_full (cache, method,
 											mb, csig, sig->param_count + 16,

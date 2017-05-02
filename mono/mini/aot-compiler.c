@@ -4242,6 +4242,77 @@ add_wrappers (MonoAotCompile *acfg)
 		method = mono_get_method_checked (acfg->image, token, NULL, NULL, &error);
 		report_loader_error (acfg, &error, "Failed to load method token 0x%x due to %s\n", i, mono_error_get_message (&error));
 
+		if (strcmp("CompleteFromAsyncAction", method->name) == 0 || strcmp("CompleteFromAsyncOperation", method->name) == 0) {
+			MonoAssembly *assembly = mono_assembly_open ("Windows.dll", NULL);
+			MonoImage *image = mono_assembly_get_image (assembly);
+			MonoGenericContext ctx;
+			MonoType *args[2];
+			MonoMethod *wrapper;
+
+			MonoClass *asyncActionCompleteHandlerKlass = mono_class_from_name (image, "Windows.Foundation", "AsyncActionCompletedHandler");
+			MonoClass *asyncOperationCompleteHandlerKlass = mono_class_from_name (image, "Windows.Foundation", "AsyncOperationCompletedHandler`1");
+			MonoClass *storageFolderKlass = mono_class_from_name (image, "Windows.Storage", "StorageFolder");
+			MonoClass *storageFileKlass = mono_class_from_name (image, "Windows.Storage", "StorageFile");
+			MonoClass *asyncActionKlass = mono_class_from_name (image, "Windows.Foundation", "IAsyncAction");
+			MonoClass *asyncOperationKlass = mono_class_from_name (image, "Windows.Foundation", "IAsyncOperation`1");
+			MonoClass *asyncStatusKlass = mono_class_from_name (image, "Windows.Foundation", "AsyncStatus");
+			MonoClass *voidValueTypeKlass = mono_class_from_name (method->klass->image, "System", "VoidValueTypeParameter");
+
+			memset (&ctx, 0, sizeof (ctx));
+			if (strcmp("CompleteFromAsyncAction", method->name) == 0 ) {
+				args [0] = &voidValueTypeKlass->byval_arg;
+				args [1] = &voidValueTypeKlass->byval_arg;
+
+				ctx.class_inst = mono_metadata_get_generic_inst (2, args);
+
+				m = mono_class_inflate_generic_method_checked (method, &ctx, &error);
+
+				wrapper = mono_marshal_get_managed_wrapper (m, asyncActionCompleteHandlerKlass, 0, &error);
+				m->signature->hasthis = 1;
+				add_method (acfg, wrapper);
+			} else if (strcmp("CompleteFromAsyncOperation", method->name) == 0) {
+				extern void
+				add_generic_class (MonoAotCompile *acfg, MonoClass *klass, gboolean force, const char *ref);
+
+				args[0] = &storageFolderKlass->byval_arg;
+				args [1] = &voidValueTypeKlass->byval_arg;
+
+				ctx.class_inst = mono_metadata_get_generic_inst (1, args);
+				MonoClass * infaltedFolderKlass = mono_class_inflate_generic_class_checked (asyncOperationCompleteHandlerKlass, &ctx, &error);
+
+				add_generic_class (acfg, infaltedFolderKlass, FALSE, "");
+
+				ctx.class_inst = mono_metadata_get_generic_inst (2, args);
+
+				m = mono_class_inflate_generic_method_checked (method, &ctx, &error);
+
+				wrapper = mono_marshal_get_managed_wrapper (m, infaltedFolderKlass, 0, &error);
+				m->signature->hasthis = 1;
+				add_method (acfg, wrapper);
+
+				args[0] = &storageFileKlass->byval_arg;
+
+				ctx.class_inst = mono_metadata_get_generic_inst (1, args);
+				MonoClass * infaltedFileKlass = mono_class_inflate_generic_class_checked (asyncOperationCompleteHandlerKlass, &ctx, &error);
+
+				add_generic_class (acfg, infaltedFileKlass, FALSE, "");
+
+				ctx.class_inst = mono_metadata_get_generic_inst (2, args);
+
+				m = mono_class_inflate_generic_method_checked (method, &ctx, &error);
+
+				wrapper = mono_marshal_get_managed_wrapper (m, infaltedFileKlass, 0, &error);
+				m->signature->hasthis = 1;
+				add_method (acfg, wrapper);
+
+
+			}
+
+			//Need more wrappers...
+
+			continue;
+		}
+
 		/* 
 		 * Only generate native-to-managed wrappers for methods which have an
 		 * attribute named MonoPInvokeCallbackAttribute. We search for the attribute by
@@ -4256,91 +4327,98 @@ add_wrappers (MonoAotCompile *acfg)
 
 		if (cattr) {
 			for (j = 0; j < cattr->num_attrs; ++j)
-				if (cattr->attrs [j].ctor && !strcmp (cattr->attrs [j].ctor->klass->name, "MonoPInvokeCallbackAttribute"))
+				if (cattr->attrs [j].ctor && (!strcmp (cattr->attrs [j].ctor->klass->name, "MonoPInvokeCallbackAttribute") || !strcmp (cattr->attrs [j].ctor->klass->name, "NativeCallableAttribute")))
 					break;
 			if (j < cattr->num_attrs) {
-				MonoCustomAttrEntry *e = &cattr->attrs [j];
-				MonoMethodSignature *sig = mono_method_signature (e->ctor);
-				const char *p = (const char*)e->data;
-				const char *named;
-				int slen, num_named, named_type;
-				char *n;
-				MonoType *t;
-				MonoClass *klass;
-				char *export_name = NULL;
-				MonoMethod *wrapper;
+				if (!strcmp (cattr->attrs [j].ctor->klass->name, "MonoPInvokeCallbackAttribute")) {
+					MonoCustomAttrEntry *e = &cattr->attrs [j];
+					MonoMethodSignature *sig = mono_method_signature (e->ctor);
+					const char *p = (const char*)e->data;
+					const char *named;
+					int slen, num_named, named_type;
+					char *n;
+					MonoType *t;
+					MonoClass *klass;
+					char *export_name = NULL;
+					MonoMethod *wrapper;
 
-				/* this cannot be enforced by the C# compiler so we must give the user some warning before aborting */
-				if (!(method->flags & METHOD_ATTRIBUTE_STATIC)) {
-					g_warning ("AOT restriction: Method '%s' must be static since it is decorated with [MonoPInvokeCallback]. See http://ios.xamarin.com/Documentation/Limitations#Reverse_Callbacks", 
-						mono_method_full_name (method, TRUE));
-					exit (1);
-				}
+					/* this cannot be enforced by the C# compiler so we must give the user some warning before aborting */
+					if (!(method->flags & METHOD_ATTRIBUTE_STATIC)) {
+						g_warning ("AOT restriction: Method '%s' must be static since it is decorated with [MonoPInvokeCallback]. See http://ios.xamarin.com/Documentation/Limitations#Reverse_Callbacks", 
+							mono_method_full_name (method, TRUE));
+						exit (1);
+					}
 
-				g_assert (sig->param_count == 1);
-				g_assert (sig->params [0]->type == MONO_TYPE_CLASS && !strcmp (mono_class_from_mono_type (sig->params [0])->name, "Type"));
+					g_assert (sig->param_count == 1);
+					g_assert (sig->params [0]->type == MONO_TYPE_CLASS && !strcmp (mono_class_from_mono_type (sig->params [0])->name, "Type"));
 
-				/* 
-				 * Decode the cattr manually since we can't create objects
-				 * during aot compilation.
-				 */
+					/*
+					 * Decode the cattr manually since we can't create objects
+					 * during aot compilation.
+					 */
 					
-				/* Skip prolog */
-				p += 2;
+					/* Skip prolog */
+					p += 2;
 
-				/* From load_cattr_value () in reflection.c */
-				slen = mono_metadata_decode_value (p, &p);
-				n = (char *)g_memdup (p, slen + 1);
-				n [slen] = 0;
-				t = mono_reflection_type_from_name_checked (n, acfg->image, &error);
-				g_assert (t);
-				mono_error_assert_ok (&error);
-				g_free (n);
+					/* From load_cattr_value () in reflection.c */
+					slen = mono_metadata_decode_value (p, &p);
+					n = (char *)g_memdup (p, slen + 1);
+					n [slen] = 0;
+					t = mono_reflection_type_from_name_checked (n, acfg->image, &error);
+					g_assert (t);
+					mono_error_assert_ok (&error);
+					g_free (n);
 
-				klass = mono_class_from_mono_type (t);
-				g_assert (klass->parent == mono_defaults.multicastdelegate_class);
+					klass = mono_class_from_mono_type (t);
+					g_assert (klass->parent == mono_defaults.multicastdelegate_class);
 
-				p += slen;
+					p += slen;
 
-				num_named = read16 (p);
-				p += 2;
+					num_named = read16 (p);
+					p += 2;
 
-				g_assert (num_named < 2);
-				if (num_named == 1) {
-					int name_len;
-					char *name;
+					g_assert (num_named < 2);
+					if (num_named == 1) {
+						int name_len;
+						char *name;
 
-					/* parse ExportSymbol attribute */
-					named = p;
-					named_type = *named;
-					named += 1;
-					/* data_type = *named; */
-					named += 1;
+						/* parse ExportSymbol attribute */
+						named = p;
+						named_type = *named;
+						named += 1;
+						/* data_type = *named; */
+						named += 1;
 
-					name_len = mono_metadata_decode_blob_size (named, &named);
-					name = (char *)g_malloc (name_len + 1);
-					memcpy (name, named, name_len);
-					name [name_len] = 0;
-					named += name_len;
+						name_len = mono_metadata_decode_blob_size (named, &named);
+						name = (char *)g_malloc (name_len + 1);
+						memcpy (name, named, name_len);
+						name [name_len] = 0;
+						named += name_len;
 
-					g_assert (named_type == 0x54);
-					g_assert (!strcmp (name, "ExportSymbol"));
+						g_assert (named_type == 0x54);
+						g_assert (!strcmp (name, "ExportSymbol"));
 
-					/* load_cattr_value (), string case */
-					g_assert (*named != (char)0xff);
-					slen = mono_metadata_decode_value (named, &named);
-					export_name = (char *)g_malloc (slen + 1);
-					memcpy (export_name, named, slen);
-					export_name [slen] = 0;
-					named += slen;
+						/* load_cattr_value (), string case */
+						g_assert (*named != (char)0xff);
+						slen = mono_metadata_decode_value (named, &named);
+						export_name = (char *)g_malloc (slen + 1);
+						memcpy (export_name, named, slen);
+						export_name [slen] = 0;
+						named += slen;
+					}
+
+					wrapper = mono_marshal_get_managed_wrapper (method, klass, 0, &error);
+					mono_error_assert_ok (&error);
+
+					add_method (acfg, wrapper);
+					if (export_name)
+						g_hash_table_insert (acfg->export_names, wrapper, export_name);
+				} else if (!strcmp (cattr->attrs [j].ctor->klass->name, "NativeCallableAttribute")) {
+					MonoMethod *wrapper = mono_marshal_get_managed_ccw_wrapper (method, &error);
+					mono_error_assert_ok (&error);
+					printf("%s\n", method->name);
+					add_method (acfg, wrapper);
 				}
-
-				wrapper = mono_marshal_get_managed_wrapper (method, klass, 0, &error);
-				mono_error_assert_ok (&error);
-
-				add_method (acfg, wrapper);
-				if (export_name)
-					g_hash_table_insert (acfg->export_names, wrapper, export_name);
 			}
 			g_free (cattr);
 		}

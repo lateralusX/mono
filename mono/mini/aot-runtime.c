@@ -1213,9 +1213,11 @@ decode_method_ref_with_target (MonoAotModule *module, MethodRef *ref, MonoMethod
 			if (!m)
 				return FALSE;
 			klass = decode_klass_ref (module, p, &p, error);
-			if (!klass)
-				return FALSE;
-			ref->method = mono_marshal_get_managed_wrapper (m, klass, 0, error);
+			if (klass != mono_defaults.icastable_class)
+				ref->method = mono_marshal_get_managed_wrapper (m, klass, 0, error);
+			else
+				ref->method = mono_marshal_get_managed_ccw_wrapper (m, error);
+
 			if (!mono_error_ok (error))
 				return FALSE;
 			break;
