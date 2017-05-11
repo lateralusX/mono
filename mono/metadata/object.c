@@ -2706,7 +2706,6 @@ leave:
 }
 #endif /* DISABLE_REMOTING */
 
-
 /**
  * mono_object_get_virtual_method:
  * \param obj object to operate on.
@@ -6508,6 +6507,37 @@ mono_object_isinst_mbyref (MonoObject *obj_raw, MonoClass *klass)
 	HANDLE_FUNCTION_RETURN_OBJ (result);
 }
 
+gboolean
+mono_object_isinst_mbyref_icastable (MonoObjectHandle obj, MonoClass *klass, MonoObjectHandle result, MonoError *error)
+{
+	static MonoMethod *helper_is_instance_of_interface = NULL;
+	MonoReflectionTypeHandle ref_type = mono_type_get_object_handle (mono_domain_get (), &klass->byval_arg, error);
+	if (!is_ok (error))
+		return FALSE;
+
+	MonoException *cast_exception = NULL;
+	gpointer args[3];
+	args[0] = MONO_HANDLE_RAW (obj);
+	args[1] = MONO_HANDLE_RAW (ref_type);
+	args[2] = &cast_exception;
+
+	if (helper_is_instance_of_interface == NULL) {
+		helper_is_instance_of_interface = mono_class_get_method_from_name (mono_defaults.icastablehelpers_class, "IsInstanceOfInterface", 3);
+	}
+
+	MonoObject *isinst_res_obj = mono_runtime_invoke_checked (helper_is_instance_of_interface, NULL, args, error);
+	gboolean isinst_of = (isinst_res_obj != NULL) ? *((MonoBoolean*)mono_object_unbox (isinst_res_obj)) : FALSE;
+	if (!is_ok (error) || !isinst_of) {
+		if (cast_exception != NULL)
+			mono_error_set_exception_instance (error, cast_exception);
+		return FALSE;
+	}
+
+	//FIX, need to upgrade vtable with extended interface map.
+	MONO_HANDLE_ASSIGN (result, obj);
+	return TRUE;
+}
+
 MonoObjectHandle
 mono_object_handle_isinst_mbyref (MonoObjectHandle obj, MonoClass *klass, MonoError *error)
 {
@@ -6534,33 +6564,7 @@ mono_object_handle_isinst_mbyref (MonoObjectHandle obj, MonoClass *klass, MonoEr
 			}
 		}
 		else if (vt->is_icastable) {
-			static MonoMethod *helper_cast_to_impl_type = NULL;
-			MonoReflectionTypeHandle ref_type = mono_type_get_object_handle (mono_domain_get (), &klass->byval_arg, error);
-			if (!is_ok (error))
-				goto leave;
-
-			MonoObject *cast_exception = NULL;
-			gpointer args[3];
-			args[0] = MONO_HANDLE_RAW (obj);
-			args[1] = MONO_HANDLE_RAW (ref_type);
-			args[2] = &cast_exception;
-
-			if (helper_cast_to_impl_type == NULL) {
-				helper_cast_to_impl_type = mono_class_get_method_from_name (mono_defaults.icastablehelpers_class, "CastToImplType", 3);
-			}
-
-			MonoReflectionType *cast_ref_type = (MonoReflectionType *)mono_runtime_invoke_checked (helper_cast_to_impl_type, NULL, args, error);
-			if (!is_ok (error))
-				goto leave;
-
-			if (cast_ref_type != NULL) {
-				MonoClass *impl_type = mono_class_from_mono_type (cast_ref_type->type);
-				if (impl_type != NULL) {
-					MONO_HANDLE_SETVAL (obj, vtable, MonoVTable*, mono_class_vtable (mono_domain_get (), impl_type));
-					MONO_HANDLE_ASSIGN (result, obj);
-				}
-			}
-
+			mono_object_isinst_mbyref_icastable (obj, klass, result, error);
 			goto leave;
 		}
 		/*If the above checks failed we are in the slow path of possibly raising an exception. So it's ok to it this way.*/

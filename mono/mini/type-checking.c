@@ -411,29 +411,48 @@ handle_castclass (MonoCompile *cfg, MonoClass *klass, MonoInst *src, int context
 	mini_save_cast_details (cfg, klass, obj_reg, FALSE);
 
 	if (mono_class_is_interface (klass)) {
-		int tmp_reg = alloc_preg (cfg);
+		int vtable_reg = alloc_preg (cfg);
 #ifndef DISABLE_REMOTING
 		MonoBasicBlock *interface_fail_bb;
 		int klass_reg = alloc_preg (cfg);
 
 		NEW_BBLOCK (cfg, interface_fail_bb);
 
-		MONO_EMIT_NEW_LOAD_MEMBASE (cfg, tmp_reg, obj_reg, MONO_STRUCT_OFFSET (MonoObject, vtable));
-		mini_emit_iface_cast (cfg, tmp_reg, klass, interface_fail_bb, is_null_bb);
+		MONO_EMIT_NEW_LOAD_MEMBASE (cfg, vtable_reg, obj_reg, MONO_STRUCT_OFFSET (MonoObject, vtable));
+		mini_emit_iface_cast (cfg, vtable_reg, klass, interface_fail_bb, is_null_bb);
 
 		// iface bitmap check failed
 		MONO_START_BB (cfg, interface_fail_bb);
 
 		//Check if it's a rank zero array and emit fallback casting
-		emit_special_array_iface_check (cfg, src, klass, tmp_reg, is_null_bb, context_used);
+		emit_special_array_iface_check (cfg, src, klass, vtable_reg, is_null_bb, context_used);
 
-		MONO_EMIT_NEW_LOAD_MEMBASE (cfg, klass_reg, tmp_reg, MONO_STRUCT_OFFSET (MonoVTable, klass));
+		MonoBasicBlock *is_icastable_true, *is_icastable_false;
+
+		NEW_BBLOCK (cfg, is_icastable_true);
+		NEW_BBLOCK (cfg, is_icastable_false);
+
+		//ICastable
+		//FIX, check objects vtable is_icastable property instead since it will be more effective.
+		mini_emit_iface_cast (cfg, vtable_reg, mono_defaults.icastable_class, is_icastable_false, is_icastable_true);
+		MONO_START_BB (cfg, is_icastable_true);
+
+		//MonoInst *break_ins;
+		//MONO_INST_NEW (cfg, break_ins, OP_BREAK);
+		//MONO_ADD_INS (cfg->cbb, break_ins);
+
+		emit_castclass_with_cache (cfg, src, klass, context_used);
+		MONO_EMIT_NEW_BRANCH_BLOCK (cfg, OP_BR, is_null_bb);
+
+		MONO_START_BB (cfg, is_icastable_false);
+
+		MONO_EMIT_NEW_LOAD_MEMBASE (cfg, klass_reg, vtable_reg, MONO_STRUCT_OFFSET (MonoVTable, klass));
 
 		mini_emit_class_check (cfg, klass_reg, mono_defaults.transparent_proxy_class);
 
-		tmp_reg = alloc_preg (cfg);
-		MONO_EMIT_NEW_LOAD_MEMBASE (cfg, tmp_reg, obj_reg, MONO_STRUCT_OFFSET (MonoTransparentProxy, custom_type_info));
-		MONO_EMIT_NEW_BIALU_IMM (cfg, OP_COMPARE_IMM, -1, tmp_reg, 0);
+		int custom_type_info_reg = alloc_preg (cfg);
+		MONO_EMIT_NEW_LOAD_MEMBASE (cfg, custom_type_info_reg, obj_reg, MONO_STRUCT_OFFSET (MonoTransparentProxy, custom_type_info));
+		MONO_EMIT_NEW_BIALU_IMM (cfg, OP_COMPARE_IMM, -1, custom_type_info_reg, 0);
 		MONO_EMIT_NEW_COND_EXC (cfg, EQ, "InvalidCastException");
 
 		MonoInst *args [1] = { src };
@@ -592,6 +611,27 @@ handle_isinst (MonoCompile *cfg, MonoClass *klass, MonoInst *src, int context_us
 
 			MONO_START_BB (cfg, not_an_array);
 		}
+
+		MonoBasicBlock *is_icastable_true, *is_icastable_false;
+		MonoInst *move;
+
+		NEW_BBLOCK (cfg, is_icastable_true);
+		NEW_BBLOCK (cfg, is_icastable_false);
+
+		//ICastable
+		//FIX, check objects vtable is_icastable property instead since it will be more effective.
+		mini_emit_iface_cast (cfg, vtable_reg, mono_defaults.icastable_class, is_icastable_false, is_icastable_true);
+		MONO_START_BB (cfg, is_icastable_true);
+
+		MonoInst *res_inst = emit_isinst_with_cache (cfg, src, klass, context_used);
+		EMIT_NEW_UNALU (cfg, move, OP_MOVE, res_reg, res_inst->dreg);
+		MONO_EMIT_NEW_BRANCH_BLOCK (cfg, OP_BR, end_bb);
+
+		MONO_START_BB (cfg, is_icastable_false);
+
+		/*MonoInst *ins;
+		MONO_INST_NEW (cfg, ins, OP_BREAK);
+		MONO_ADD_INS (cfg->cbb, ins);*/
 
 #ifndef DISABLE_REMOTING
 		int tmp_reg, klass_reg;

@@ -71,23 +71,11 @@ namespace System.Runtime.CompilerServices {
 
         internal static RuntimeType GetImplType (ICastable castable, RuntimeType interfaceType)
         {
-            //return castable.GetImplType (new RuntimeTypeHandle (interfaceType)).GetRuntimeType ();
-            //return (RuntimeType)Type.GetTypeFromHandle (castable.GetImplType (new RuntimeTypeHandle (interfaceType)));
-
             var typeImpl = (RuntimeType)Type.GetTypeFromHandle (castable.GetImplType (new RuntimeTypeHandle (interfaceType)));
-            Console.WriteLine(typeImpl.ToString());
+            if (typeImpl != null)
+                Console.WriteLine(typeImpl.ToString());
             return typeImpl;
 
         }
-
-        internal static RuntimeType CastToImplType (ICastable castable, RuntimeType type, out Exception castError)
-        {
-            if (!IsInstanceOfInterface (castable, type, out castError)) {
-                return null;
-            }
-
-            return GetImplType (castable, type);
-        }
-
     }
 }
