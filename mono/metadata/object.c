@@ -80,6 +80,7 @@ static GENERATE_GET_CLASS_WITH_CACHE (activation_services, "System.Runtime.Remot
 #define ldstr_unlock() mono_os_mutex_unlock (&ldstr_section)
 static mono_mutex_t ldstr_section;
 
+static MonoClass *g_empty_icastable_interface_table[] = { 0 };
 
 /**
  * mono_runtime_object_init:
@@ -2101,7 +2102,7 @@ mono_class_create_runtime_vtable (MonoDomain *domain, MonoClass *klass, MonoErro
 	mono_vtable_set_is_remote (vt, mono_class_is_contextbound (klass));
 
 	if (MONO_VTABLE_IMPLEMENTS_INTERFACE (vt, mono_defaults.icastable_class->interface_id))
-		vt->is_icastable = 1;
+		vt->icastable_interface_table = g_empty_icastable_interface_table;
 
 	/*  class_vtable_array keeps an array of created vtables
 	 */
@@ -2169,6 +2170,180 @@ mono_class_create_runtime_vtable (MonoDomain *domain, MonoClass *klass, MonoErro
 		mono_class_vtable_full (domain, klass->parent, error);
 
 	return vt;
+}
+
+static MonoVTable *
+mono_class_extend_vtable (MonoDomain *domain, MonoClass *template_class, MonoClass *additional_interfaces[], uint32_t additional_interfaces_count, MonoError *error)
+{
+	MONO_REQ_GC_UNSAFE_MODE;
+
+	MonoVTable *vt, *pvt;
+	int i, j, vtsize, extra_interface_vtsize = 0;
+	guint32 max_interface_id;
+	MonoClass *k;
+	GSList *extra_interfaces = NULL;
+	gpointer *interface_offsets;
+	uint8_t *bitmap = NULL;
+	int bsize;
+	size_t imt_table_bytes;
+
+#ifdef COMPRESSED_INTERFACE_BITMAP
+	int bcsize;
+#endif
+
+	error_init (error);
+
+	vt = mono_class_vtable (domain, template_class);
+	g_assert (vt); /*FIXME property handle failure*/
+	max_interface_id = vt->max_interface_id;
+
+	/* Calculate vtable space for extra interfaces */
+	for (j = 0; j < additional_interfaces_count; j++) {
+		MonoClass* iclass = additional_interfaces[j];
+		GPtrArray *ifaces;
+		int method_count;
+
+		/*FIXME test for interfaces with variant generic arguments*/
+		if (MONO_CLASS_IMPLEMENTS_INTERFACE (template_class, iclass->interface_id))
+			continue;	/* interface implemented by the class */
+		if (g_slist_find (extra_interfaces, iclass))
+			continue;
+
+		extra_interfaces = g_slist_prepend (extra_interfaces, iclass);
+
+		method_count = mono_class_num_methods (iclass);
+
+		ifaces = mono_class_get_implemented_interfaces (iclass, error);
+		if (!is_ok (error))
+			goto failure;
+		if (ifaces) {
+			for (i = 0; i < ifaces->len; ++i) {
+				MonoClass *ic = (MonoClass *)g_ptr_array_index (ifaces, i);
+				/*FIXME test for interfaces with variant generic arguments*/
+				if (MONO_CLASS_IMPLEMENTS_INTERFACE (template_class, ic->interface_id))
+					continue;	/* interface implemented by the class */
+				if (g_slist_find (extra_interfaces, ic))
+					continue;
+				extra_interfaces = g_slist_prepend (extra_interfaces, ic);
+				method_count += mono_class_num_methods (ic);
+			}
+			g_ptr_array_free (ifaces, TRUE);
+			ifaces = NULL;
+		}
+
+		extra_interface_vtsize += method_count * sizeof (gpointer);
+		if (iclass->max_interface_id > max_interface_id) max_interface_id = iclass->max_interface_id;
+	}
+
+	imt_table_bytes = sizeof (gpointer) * MONO_IMT_SIZE;
+	mono_stats.imt_number_of_tables++;
+	mono_stats.imt_tables_size += imt_table_bytes;
+
+	vtsize = imt_table_bytes + MONO_SIZEOF_VTABLE + template_class->vtable_size * sizeof (gpointer);
+
+	mono_stats.class_vtable_size += vtsize + extra_interface_vtsize;
+
+	interface_offsets = alloc_vtable (domain, vtsize + extra_interface_vtsize, imt_table_bytes);
+	pvt = (MonoVTable*) ((char*)interface_offsets + imt_table_bytes);
+	g_assert (!((gsize)pvt & 7));
+
+	memcpy (pvt, vt, MONO_SIZEOF_VTABLE + template_class->vtable_size * sizeof (gpointer));
+
+	pvt->klass = template_class;
+	/* we need to keep the GC descriptor or we confuse the precise GC */
+	pvt->gc_descr = template_class->gc_descr;
+
+	/* initialize vtable */
+	mono_class_setup_vtable (template_class);
+	for (i = 0; i < template_class->vtable_size; ++i) {
+		MonoMethod *cm;
+
+		if ((cm = template_class->vtable [i])) {
+			//pvt->vtable [i] = create_remoting_trampoline (domain, cm, target_type, error);
+			pvt->vtable [i] = callbacks.get_vtable_trampoline (pvt, i);
+			if (!is_ok (error))
+				goto failure;
+		} else
+			pvt->vtable [i] = NULL;
+	}
+
+	if (mono_class_is_abstract (template_class)) {
+		/* create trampolines for abstract methods */
+		for (k = template_class; k; k = k->parent) {
+			MonoMethod* m;
+			gpointer iter = NULL;
+			while ((m = mono_class_get_methods (k, &iter)))
+				if (!pvt->vtable [m->slot]) {
+					//pvt->vtable [m->slot] = create_remoting_trampoline (domain, m, target_type, error);
+					pvt->vtable [m->slot] = callbacks.get_vtable_trampoline (pvt, m->slot);
+					if (!is_ok (error))
+						goto failure;
+				}
+		}
+	}
+
+	pvt->max_interface_id = max_interface_id;
+	bsize = sizeof (guint8) * (max_interface_id/8 + 1 );
+#ifdef COMPRESSED_INTERFACE_BITMAP
+	bitmap = (uint8_t *)g_malloc0 (bsize);
+#else
+	bitmap = (uint8_t *)mono_domain_alloc0 (domain, bsize);
+#endif
+
+	for (i = 0; i < template_class->interface_offsets_count; ++i) {
+		int interface_id = template_class->interfaces_packed [i]->interface_id;
+		bitmap [interface_id >> 3] |= (1 << (interface_id & 7));
+	}
+
+	if (extra_interfaces) {
+		int slot = template_class->vtable_size;
+		MonoClass* interf;
+		gpointer iter;
+		MonoMethod* cm;
+		GSList *list_item;
+
+		/* Create trampolines for the methods of the interfaces */
+		for (list_item = extra_interfaces; list_item != NULL; list_item=list_item->next) {
+			interf = (MonoClass *)list_item->data;
+
+			bitmap [interf->interface_id >> 3] |= (1 << (interf->interface_id & 7));
+
+			iter = NULL;
+			j = 0;
+			while ((cm = mono_class_get_methods (interf, &iter))) {
+				//pvt->vtable [slot + j++] = create_remoting_trampoline (domain, cm, target_type, error);
+				pvt->vtable [slot + j] = callbacks.get_vtable_trampoline (pvt, slot + j);
+				j++;
+				if (!is_ok (error))
+					goto failure;
+			}
+
+			slot += mono_class_num_methods (interf);
+		}
+	}
+
+	/* Now that the vtable is full, we can actually fill up the IMT */
+	build_imt (template_class, pvt, domain, interface_offsets, extra_interfaces);
+	if (extra_interfaces) {
+		g_slist_free (extra_interfaces);
+	}
+
+#ifdef COMPRESSED_INTERFACE_BITMAP
+	bcsize = mono_compress_bitmap (NULL, bitmap, bsize);
+	pvt->interface_bitmap = mono_domain_alloc0 (domain, bcsize);
+	mono_compress_bitmap (pvt->interface_bitmap, bitmap, bsize);
+	g_free (bitmap);
+#else
+	pvt->interface_bitmap = bitmap;
+#endif
+	return pvt;
+failure:
+	if (extra_interfaces)
+		g_slist_free (extra_interfaces);
+#ifdef COMPRESSED_INTERFACE_BITMAP
+	g_free (bitmap);
+#endif
+	return NULL;
 }
 
 #ifndef DISABLE_REMOTING
@@ -6507,8 +6682,8 @@ mono_object_isinst_mbyref (MonoObject *obj_raw, MonoClass *klass)
 	HANDLE_FUNCTION_RETURN_OBJ (result);
 }
 
-gboolean
-mono_object_isinst_mbyref_icastable (MonoObjectHandle obj, MonoClass *klass, MonoObjectHandle result, MonoError *error)
+static gboolean
+mono_object_isinst_mbyref_icastable (MonoObjectHandle obj, MonoClass *klass, MonoError *error)
 {
 	static MonoMethod *helper_is_instance_of_interface = NULL;
 	MonoReflectionTypeHandle ref_type = mono_type_get_object_handle (mono_domain_get (), &klass->byval_arg, error);
@@ -6533,8 +6708,44 @@ mono_object_isinst_mbyref_icastable (MonoObjectHandle obj, MonoClass *klass, Mon
 		return FALSE;
 	}
 
+	MonoObject *obj_instance = MONO_HANDLE_RAW (obj);
+	MonoClass **current_interface_table = obj_instance->vtable->icastable_interface_table;
+	MonoClass **new_interface_table = NULL;
+	int current_interface_count = 0;
+
+	if (current_interface_table != g_empty_icastable_interface_table) {
+		// Count current number of interfaces.
+		while (current_interface_table[current_interface_count] != NULL)
+			current_interface_count++;
+
+		// Create new interface table, one additional slot + NULL.
+		new_interface_table = g_new0 (MonoClass *, current_interface_count + 2);
+
+		// Keep it sorted on MonoClass address.
+		int i;
+		int j;
+
+		for (i = 0, j = 0; i < current_interface_count; i++, j++) {
+			if (current_interface_table [i] > klass && i == j)
+				new_interface_table [j++] = klass;
+			new_interface_table [j] = current_interface_table [i];
+		}
+		if (i == j)
+			new_interface_table [j] = klass;
+
+	} else {
+		// Create new interface table, one slot + NULL.
+		new_interface_table = g_new0 (MonoClass *, 2);
+		new_interface_table[0] = klass;
+	}
+
+	//If new vtable, cache vtable instance on key in domain. If found in cache, use it as obj vtable.
+	//Need to clone key, setup list, type in cache should have list + vtable.
+
 	//FIX, need to upgrade vtable with extended interface map.
-	MONO_HANDLE_ASSIGN (result, obj);
+	MonoVTable *extended_vtable = mono_class_extend_vtable (obj_instance->vtable->domain, obj_instance->vtable->klass, new_interface_table, current_interface_count + 1, error);
+	extended_vtable->icastable_interface_table = new_interface_table;
+	MONO_HANDLE_SETVAL (obj, vtable, MonoVTable*, extended_vtable);
 	return TRUE;
 }
 
@@ -6563,9 +6774,11 @@ mono_object_handle_isinst_mbyref (MonoObjectHandle obj, MonoClass *klass, MonoEr
 				goto leave;
 			}
 		}
-		else if (vt->is_icastable) {
-			mono_object_isinst_mbyref_icastable (obj, klass, result, error);
-			goto leave;
+		else if (mono_vtable_is_icastable (vt)) {
+			if (mono_object_isinst_mbyref_icastable (obj, klass, error)) {
+				MONO_HANDLE_ASSIGN (result, obj);
+				goto leave;
+			}
 		}
 		/*If the above checks failed we are in the slow path of possibly raising an exception. So it's ok to it this way.*/
 		else if (mono_class_has_variant_generic_params (klass) && mono_class_is_assignable_from (klass, mono_handle_class (obj))) {

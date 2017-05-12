@@ -382,6 +382,55 @@ emit_special_array_iface_check (MonoCompile *cfg, MonoInst *src, MonoClass* klas
 
 }
 
+static void
+emit_icastable_check (MonoCompile *cfg, int vtable_reg, MonoBasicBlock *is_icastable_false)
+{
+	// Check for ICastable support.
+	int icastable_interface_table_reg = alloc_preg (cfg);
+	MONO_EMIT_NEW_LOAD_MEMBASE (cfg, icastable_interface_table_reg, vtable_reg, MONO_STRUCT_OFFSET (MonoVTable, icastable_interface_table));
+	MONO_EMIT_NEW_BIALU_IMM (cfg, OP_COMPARE_IMM, -1, icastable_interface_table_reg, 0);
+	MONO_EMIT_NEW_BRANCH_BLOCK (cfg, OP_PBEQ, is_icastable_false);
+}
+
+static void
+emit_castclass_icastable_check (MonoCompile *cfg, MonoInst *src, MonoClass *klass, int vtable_reg, MonoBasicBlock *is_icastable_true, int context_used)
+{
+	MonoBasicBlock *is_icastable_false;
+	NEW_BBLOCK (cfg, is_icastable_false);
+
+	emit_icastable_check (cfg, vtable_reg, is_icastable_false);
+	emit_castclass_with_cache (cfg, src, klass, context_used);
+
+	/*MonoInst *break_ins;
+	MONO_INST_NEW (cfg, break_ins, OP_BREAK);
+	MONO_ADD_INS (cfg->cbb, break_ins);*/
+
+	MONO_EMIT_NEW_BRANCH_BLOCK (cfg, OP_BR, is_icastable_true);
+
+	MONO_START_BB (cfg, is_icastable_false);
+}
+
+static void
+emit_isinst_icastable_check (MonoCompile *cfg, MonoInst *src, MonoClass *klass, int vtable_reg, int res_reg, MonoBasicBlock *is_icastable_true, int context_used)
+{
+	MonoBasicBlock *is_icastable_false;
+	NEW_BBLOCK (cfg, is_icastable_false);
+
+	emit_icastable_check (cfg, vtable_reg, is_icastable_false);
+	MonoInst *res_inst = emit_isinst_with_cache (cfg, src, klass, context_used);
+
+	MonoInst *move;
+	EMIT_NEW_UNALU (cfg, move, OP_MOVE, res_reg, res_inst->dreg);
+
+	/*MonoInst *break_ins;
+	MONO_INST_NEW (cfg, break_ins, OP_BREAK);
+	MONO_ADD_INS (cfg->cbb, break_ins);*/
+
+	MONO_EMIT_NEW_BRANCH_BLOCK (cfg, OP_BR, is_icastable_true);
+
+	MONO_START_BB (cfg, is_icastable_false);
+}
+
 /*
  * Returns NULL and set the cfg exception on error.
  */
@@ -427,24 +476,8 @@ handle_castclass (MonoCompile *cfg, MonoClass *klass, MonoInst *src, int context
 		//Check if it's a rank zero array and emit fallback casting
 		emit_special_array_iface_check (cfg, src, klass, vtable_reg, is_null_bb, context_used);
 
-		MonoBasicBlock *is_icastable_true, *is_icastable_false;
-
-		NEW_BBLOCK (cfg, is_icastable_true);
-		NEW_BBLOCK (cfg, is_icastable_false);
-
-		//ICastable
-		//FIX, check objects vtable is_icastable property instead since it will be more effective.
-		mini_emit_iface_cast (cfg, vtable_reg, mono_defaults.icastable_class, is_icastable_false, is_icastable_true);
-		MONO_START_BB (cfg, is_icastable_true);
-
-		//MonoInst *break_ins;
-		//MONO_INST_NEW (cfg, break_ins, OP_BREAK);
-		//MONO_ADD_INS (cfg->cbb, break_ins);
-
-		emit_castclass_with_cache (cfg, src, klass, context_used);
-		MONO_EMIT_NEW_BRANCH_BLOCK (cfg, OP_BR, is_null_bb);
-
-		MONO_START_BB (cfg, is_icastable_false);
+		// Check if ICastable is supported for casting.
+		emit_castclass_icastable_check (cfg, src, klass, vtable_reg, is_null_bb, context_used);
 
 		MONO_EMIT_NEW_LOAD_MEMBASE (cfg, klass_reg, vtable_reg, MONO_STRUCT_OFFSET (MonoVTable, klass));
 
@@ -612,26 +645,8 @@ handle_isinst (MonoCompile *cfg, MonoClass *klass, MonoInst *src, int context_us
 			MONO_START_BB (cfg, not_an_array);
 		}
 
-		MonoBasicBlock *is_icastable_true, *is_icastable_false;
-		MonoInst *move;
-
-		NEW_BBLOCK (cfg, is_icastable_true);
-		NEW_BBLOCK (cfg, is_icastable_false);
-
-		//ICastable
-		//FIX, check objects vtable is_icastable property instead since it will be more effective.
-		mini_emit_iface_cast (cfg, vtable_reg, mono_defaults.icastable_class, is_icastable_false, is_icastable_true);
-		MONO_START_BB (cfg, is_icastable_true);
-
-		MonoInst *res_inst = emit_isinst_with_cache (cfg, src, klass, context_used);
-		EMIT_NEW_UNALU (cfg, move, OP_MOVE, res_reg, res_inst->dreg);
-		MONO_EMIT_NEW_BRANCH_BLOCK (cfg, OP_BR, end_bb);
-
-		MONO_START_BB (cfg, is_icastable_false);
-
-		/*MonoInst *ins;
-		MONO_INST_NEW (cfg, ins, OP_BREAK);
-		MONO_ADD_INS (cfg->cbb, ins);*/
+		// Check if ICastable is supported for casting.
+		emit_isinst_icastable_check (cfg, src, klass, vtable_reg, res_reg, end_bb, context_used);
 
 #ifndef DISABLE_REMOTING
 		int tmp_reg, klass_reg;

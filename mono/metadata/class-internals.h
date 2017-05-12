@@ -454,7 +454,7 @@ struct MonoVTable {
 	 */
 	MonoGCDescriptor gc_descr;
 	MonoDomain *domain;  /* each object/vtable belongs to exactly one domain */
-        gpointer    type; /* System.Type type for klass */
+	gpointer    type; /* System.Type type for klass */
 	guint8     *interface_bitmap;
 	guint32     max_interface_id;
 	guint8      rank;
@@ -463,11 +463,12 @@ struct MonoVTable {
 	guint remote          : 1; /* class is remotely activated */
 	guint init_failed     : 1; /* cctor execution failed */
 	guint has_static_fields : 1; /* pointer to the data stored at the end of the vtable array */
-	guint is_icastable : 1; /* implements ICastable interface */
 	guint gc_bits         : MONO_VTABLE_AVAILABLE_GC_BITS; /* Those bits are reserved for the usaged of the GC */
 
 	guint32     imt_collisions_bitmap;
 	MonoRuntimeGenericContext *runtime_generic_context;
+	MonoClass **icastable_interface_table; /* In case of type implementing ICastable, list of additional interfaces supported in vtable */
+
 	/* do not add any fields after vtable, the structure is dynamically extended */
 	/* vtable contains function pointers to methods or their trampolines, at the
 	 end there may be a slot containing the pointer to the static fields */
@@ -1125,6 +1126,8 @@ typedef struct {
 #endif
 
 #define mono_object_is_transparent_proxy(object) (mono_class_is_transparent_proxy (mono_object_class (object)))
+
+#define mono_vtable_is_icastable(vtable) (vtable->icastable_interface_table != NULL)
 
 
 #define GENERATE_GET_CLASS_WITH_CACHE_DECL(shortname) \

@@ -892,6 +892,90 @@ mono_vcall_resolve_vtable_slot (MonoVTable *vt, int slot, gpointer **vtable_slot
 	return ftnptr;
 }
 
+static gpointer
+mono_vcall_resolve_icastable_vtable_slot (mgreg_t *regs, guint8 *code, int slot, MonoObject *this_arg, MonoVTable *vt, MonoError *error)
+{
+	static MonoMethod *is_instance_of_interface = NULL;
+	static MonoMethod *get_impl_type = NULL;
+	static MonoMethod *helper_get_impl_type = NULL;
+
+	gpointer res = NULL;
+
+	g_assert (mono_vtable_is_icastable (vt));
+
+	if (is_instance_of_interface == NULL) {
+		is_instance_of_interface = mono_class_get_method_from_name (mono_defaults.icastable_class, "IsInstanceOfInterface", 2);
+		g_assert (is_instance_of_interface != NULL);
+	}
+
+	if (get_impl_type == NULL) {
+		get_impl_type = mono_class_get_method_from_name (mono_defaults.icastable_class, "GetImplType", 1);
+		g_assert (get_impl_type != NULL);
+	}
+
+	MonoMethod *method = mono_arch_find_imt_method (regs, code);
+	g_assert (method != NULL);
+
+	//Validate that underlying class doesn't implement method, if so it should be resolved the normal way.
+	if (mono_class_is_interface (method->klass) && mono_class_interface_offset (vt->klass, method->klass) == -1) {
+		MonoReflectionTypeHandle ref_type = mono_type_get_object_handle (mono_domain_get (), &(method->klass->byval_arg), error);
+		if (!is_ok (error))
+			return NULL;
+
+		MonoObject *cast_exception = NULL;
+		void *args[2];
+		args[0] = this_arg;
+		args[1] = MONO_HANDLE_RAW (ref_type);
+
+		if (helper_get_impl_type == NULL) {
+			helper_get_impl_type = mono_class_get_method_from_name (mono_defaults.icastablehelpers_class, "GetImplType", 2);
+			g_assert (helper_get_impl_type != NULL);
+		}
+
+		MonoReflectionType *cast_ref_type = (MonoReflectionType *)mono_runtime_invoke_checked (helper_get_impl_type, NULL, args, error);
+		if (!is_ok (error))
+			return NULL;
+
+		if (cast_ref_type == NULL) {
+			mono_error_set_exception_instance (error, mono_exception_from_name (mono_defaults.corlib, "System", "EntryPointNotFoundException"));
+			return NULL;
+		}
+
+		MonoClass *impl_type = mono_class_from_mono_type (cast_ref_type->type);
+		if (impl_type != NULL) {
+			MonoVTable *impl_type_vt = mono_class_vtable (mono_domain_get (), impl_type);
+			gpointer *impl_type_vtable_slot = NULL;
+			MonoMethod *impl_type_m = NULL;
+
+			// Slot is incorrect for implementors vtable since it is implemented in different type.
+			gboolean no_exact_match;
+			int impl_type_interface_offset = mono_class_interface_offset_with_variance (impl_type, method->klass, &no_exact_match);
+			g_assert (impl_type_interface_offset != -1);
+
+			// Get implementing method and vtable slot in implementing type.
+			res = mono_vcall_resolve_vtable_slot (impl_type_vt, impl_type_interface_offset + method->slot, &impl_type_vtable_slot, &impl_type_m, error);
+			if (res == NULL)
+				res = common_call_trampoline (regs, code, impl_type_m, impl_type_vt, impl_type_vtable_slot, error);
+
+			if (res == NULL) {
+				mono_error_set_exception_instance (error, mono_exception_from_name (mono_defaults.corlib, "System", "EntryPointNotFoundException"));
+				return NULL;
+			}
+
+			// Patch slot with value of impl type vtable slot.
+			if (slot >= 0) {
+				// Virtual call.
+				vt->vtable [slot] = *impl_type_vtable_slot;
+			} else {
+				// IMT call.
+				((gpointer*)vt) [slot] = *impl_type_vtable_slot;
+			}
+		}
+	}
+
+	return res;
+}
+
 /**
  * mono_vcall_trampoline:
  *
@@ -927,66 +1011,17 @@ mono_vcall_trampoline (mgreg_t *regs, guint8 *code, int slot, guint8 *tramp)
 
 	vt = this_arg->vtable;
 
-	//This should only be done if we are not running the icastable implementation (or have updated vtable since slot is wrong in ICastable case).
-	// How do we find find slot for method in new vtable??????
+	mono_error_init (&error);
 
-	gpointer ftnptr = mono_vcall_resolve_vtable_slot (vt, slot, &vtable_slot, &m, &error);
-	if (ftnptr != NULL)
-		return ftnptr;
-
-	if (m == NULL && vt->is_icastable) {
-		static MonoMethod *is_instance_of_interface = NULL;
-		static MonoMethod *get_impl_type = NULL;
-		static MonoMethod *helper_get_impl_type = NULL;
-
-		if (is_instance_of_interface == NULL) {
-			is_instance_of_interface = mono_class_get_method_from_name (mono_defaults.icastable_class, "IsInstanceOfInterface", 2);
-		}
-
-		if (get_impl_type == NULL) {
-			get_impl_type = mono_class_get_method_from_name (mono_defaults.icastable_class, "GetImplType", 1);
-		}
-		
-		MonoMethod *method = mono_arch_find_imt_method (regs, code);
-		g_assert (method != NULL);
-
-		//Validate that underlying class doesn't implement method.
-		if (mono_class_is_interface (method->klass) && mono_class_interface_offset (vt->klass, method->klass) == -1) {
-			MonoReflectionTypeHandle ref_type = mono_type_get_object_handle (mono_domain_get (), &(method->klass->byval_arg), &error);
-			if (!is_ok (&error))
-				goto leave;
-
-			MonoObject *cast_exception = NULL;
-			void *args[2];
-			args[0] = this_arg;
-			args[1] = MONO_HANDLE_RAW (ref_type);
-
-			if (helper_get_impl_type == NULL) {
-				helper_get_impl_type = mono_class_get_method_from_name (mono_defaults.icastablehelpers_class, "GetImplType", 2);
-			}
-
-			MonoReflectionType *cast_ref_type = (MonoReflectionType *)mono_runtime_invoke_checked (helper_get_impl_type, NULL, args, &error);
-			if (!is_ok (&error))
-				goto leave;
-
-			if (cast_ref_type == NULL) {
-				mono_error_set_exception_instance (&error, mono_exception_from_name (mono_defaults.corlib, "System", "EntryPointNotFoundException"));
-				goto leave;
-			}
-
-			MonoClass *impl_type = mono_class_from_mono_type (cast_ref_type->type);
-			if (impl_type != NULL) {
-				MonoVTable *impl_type_vt = mono_class_vtable (mono_domain_get (), impl_type);
-				gpointer *impl_type_vtable_slot;
-				MonoMethod *impl_type_m;
-				//Slot is incorrect for this vtable since it originates from different vtable
-				mono_vcall_resolve_vtable_slot (impl_type_vt, slot, &impl_type_vtable_slot, &impl_type_m, &error);
-				res = common_call_trampoline (regs, code, impl_type_m, impl_type_vt, impl_type_vtable_slot, &error);
-				//*vtable_slot = *impl_type_vtable_slot;
-				goto leave;
-			}
-		}
+	if (mono_vtable_is_icastable (vt)) {
+		res = mono_vcall_resolve_icastable_vtable_slot (regs, code, slot, this_arg, vt, &error);
+		if (res != NULL || (res == NULL && !is_ok (&error)))
+			goto leave;
 	}
+
+	res = mono_vcall_resolve_vtable_slot (vt, slot, &vtable_slot, &m, &error);
+	if (res != NULL)
+		goto leave;
 
 	res = common_call_trampoline (regs, code, m, vt, vtable_slot, &error);
 leave:
