@@ -80,7 +80,8 @@ static GENERATE_GET_CLASS_WITH_CACHE (activation_services, "System.Runtime.Remot
 #define ldstr_unlock() mono_os_mutex_unlock (&ldstr_section)
 static mono_mutex_t ldstr_section;
 
-static MonoClass *g_empty_icastable_interface_table[] = { GINT_TO_POINTER (1) };
+static MonoClass	*empty_icastable_interface_table [] = { GINT_TO_POINTER (1) };
+static MonoMethod	*icastable_helper_isinstanceofinterface;
 
 /**
  * mono_runtime_object_init:
@@ -2102,7 +2103,7 @@ mono_class_create_runtime_vtable (MonoDomain *domain, MonoClass *klass, MonoErro
 	mono_vtable_set_is_remote (vt, mono_class_is_contextbound (klass));
 
 	if (MONO_VTABLE_IMPLEMENTS_INTERFACE (vt, mono_defaults.icastable_class->interface_id))
-		vt->icastable_interface_table = g_empty_icastable_interface_table;
+		vt->icastable_interface_table = empty_icastable_interface_table;
 
 	/*  class_vtable_array keeps an array of created vtables
 	 */
@@ -6793,13 +6794,18 @@ icastable_isinst_mbyref (MonoObjectHandle obj, MonoClass *klass, MonoError *erro
 	args[1] = MONO_HANDLE_RAW (ref_type);
 	args[2] = &cast_exception;
 
-	static MonoMethod *helper_is_instance_of_interface = NULL;
-	if (helper_is_instance_of_interface == NULL) {
-		helper_is_instance_of_interface = mono_class_get_method_from_name (mono_defaults.icastablehelpers_class, "IsInstanceOfInterface", 3);
+	if (!icastable_helper_isinstanceofinterface) {
+		mono_loader_lock ();
+		if (!icastable_helper_isinstanceofinterface) {
+			icastable_helper_isinstanceofinterface = mono_class_get_method_from_name (mono_defaults.icastablehelpers_class, "IsInstanceOfInterface", 3);
+		}
+		mono_loader_unlock ();
 	}
 
+	g_assert (icastable_helper_isinstanceofinterface);
+
 	// Call ICastable::IsInstanceOfInterface to check for support of requested interface type.
-	MonoObject *isinst_res_obj = mono_runtime_invoke_checked (helper_is_instance_of_interface, NULL, args, error);
+	MonoObject *isinst_res_obj = mono_runtime_invoke_checked (icastable_helper_isinstanceofinterface, NULL, args, error);
 	gboolean isinst_of = (isinst_res_obj != NULL) ? *((MonoBoolean*)mono_object_unbox (isinst_res_obj)) : FALSE;
 	if (!is_ok (error) || !isinst_of) {
 		if (cast_exception != NULL)

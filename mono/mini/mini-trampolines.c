@@ -40,6 +40,8 @@ static guint32 trampoline_calls, jit_trampolines, unbox_trampolines, static_rgct
 #define mono_trampolines_unlock() mono_os_mutex_unlock (&trampolines_mutex)
 static mono_mutex_t trampolines_mutex;
 
+static MonoMethod *icastable_helper_getimpltype;
+
 #ifdef MONO_ARCH_GSHARED_SUPPORTED
 
 typedef struct {
@@ -895,23 +897,9 @@ mono_vcall_resolve_vtable_slot (MonoVTable *vt, int slot, gpointer **vtable_slot
 static gpointer
 mono_vcall_resolve_icastable_vtable_slot (mgreg_t *regs, guint8 *code, int slot, MonoObject *this_arg, MonoVTable *vt, MonoError *error)
 {
-	static MonoMethod *is_instance_of_interface = NULL;
-	static MonoMethod *get_impl_type = NULL;
-	static MonoMethod *helper_get_impl_type = NULL;
-
 	gpointer res = NULL;
 
 	g_assert (mono_vtable_is_icastable (vt));
-
-	if (is_instance_of_interface == NULL) {
-		is_instance_of_interface = mono_class_get_method_from_name (mono_defaults.icastable_class, "IsInstanceOfInterface", 2);
-		g_assert (is_instance_of_interface != NULL);
-	}
-
-	if (get_impl_type == NULL) {
-		get_impl_type = mono_class_get_method_from_name (mono_defaults.icastable_class, "GetImplType", 1);
-		g_assert (get_impl_type != NULL);
-	}
 
 	MonoMethod *method = mono_arch_find_imt_method (regs, code);
 	g_assert (method != NULL);
@@ -927,12 +915,17 @@ mono_vcall_resolve_icastable_vtable_slot (mgreg_t *regs, guint8 *code, int slot,
 		args[0] = this_arg;
 		args[1] = MONO_HANDLE_RAW (ref_type);
 
-		if (helper_get_impl_type == NULL) {
-			helper_get_impl_type = mono_class_get_method_from_name (mono_defaults.icastablehelpers_class, "GetImplType", 2);
-			g_assert (helper_get_impl_type != NULL);
+		if (!icastable_helper_getimpltype) {
+			mono_loader_lock ();
+			if (!icastable_helper_getimpltype) {
+				icastable_helper_getimpltype = mono_class_get_method_from_name (mono_defaults.icastablehelpers_class, "GetImplType", 2);
+			}
+			mono_loader_unlock ();
 		}
 
-		MonoReflectionType *cast_ref_type = (MonoReflectionType *)mono_runtime_invoke_checked (helper_get_impl_type, NULL, args, error);
+		g_assert (icastable_helper_getimpltype);
+
+		MonoReflectionType *cast_ref_type = (MonoReflectionType *)mono_runtime_invoke_checked (icastable_helper_getimpltype, NULL, args, error);
 		if (!is_ok (error))
 			return NULL;
 
