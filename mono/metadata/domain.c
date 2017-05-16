@@ -276,7 +276,7 @@ mono_ptrarray_equal (gpointer *s1, gpointer *s2)
 	if (len != GPOINTER_TO_INT (s2 [0]))
 		return FALSE;
 
-	return memcmp (s1 + 1, s2 + 1, len * sizeof(gpointer)) == 0; 
+	return memcmp (s1 + 1, s2 + 1, (len - 1) * sizeof(gpointer)) == 0;
 }
 
 static guint
@@ -409,6 +409,7 @@ mono_domain_create (void)
 	domain->assembly_bindings_parsed = FALSE;
 	domain->class_vtable_array = g_ptr_array_new ();
 	domain->proxy_vtable_hash = g_hash_table_new ((GHashFunc)mono_ptrarray_hash, (GCompareFunc)mono_ptrarray_equal);
+	domain->icastable_interface_cache_hash = g_hash_table_new ((GHashFunc)mono_ptrarray_hash, (GCompareFunc)mono_ptrarray_equal);
 	domain->static_data_array = NULL;
 	mono_jit_code_hash_init (&domain->jit_code_hash);
 	domain->ldstr_table = mono_g_hash_table_new_type ((GHashFunc)mono_string_hash, (GCompareFunc)mono_string_equal, MONO_HASH_KEY_VALUE_GC, MONO_ROOT_SOURCE_DOMAIN, "domain string constants table");
@@ -1156,6 +1157,8 @@ mono_domain_free (MonoDomain *domain, gboolean force)
 	domain->class_vtable_array = NULL;
 	g_hash_table_destroy (domain->proxy_vtable_hash);
 	domain->proxy_vtable_hash = NULL;
+	g_hash_table_destroy (domain->icastable_interface_cache_hash);
+	domain->icastable_interface_cache_hash = NULL;
 	if (domain->static_data_array) {
 		mono_gc_free_fixed (domain->static_data_array);
 		domain->static_data_array = NULL;

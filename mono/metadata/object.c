@@ -80,7 +80,7 @@ static GENERATE_GET_CLASS_WITH_CACHE (activation_services, "System.Runtime.Remot
 #define ldstr_unlock() mono_os_mutex_unlock (&ldstr_section)
 static mono_mutex_t ldstr_section;
 
-static MonoClass *g_empty_icastable_interface_table[] = { 0 };
+static MonoClass *g_empty_icastable_interface_table[] = { GINT_TO_POINTER (1) };
 
 /**
  * mono_runtime_object_init:
@@ -6682,24 +6682,123 @@ mono_object_isinst_mbyref (MonoObject *obj_raw, MonoClass *klass)
 	HANDLE_FUNCTION_RETURN_OBJ (result);
 }
 
-static gboolean
-mono_object_isinst_mbyref_icastable (MonoObjectHandle obj, MonoClass *klass, MonoError *error)
+static void
+icastable_add_interface_to_sorted_vector (MonoClass **source, int count, MonoClass **target, MonoClass *interface_to_add)
 {
-	static MonoMethod *helper_is_instance_of_interface = NULL;
+	int i;
+	int j;
+
+	for (i = 0, j = 0; i < count; i++, j++) {
+		if (source [i] > interface_to_add && i == j)
+			target [j++] = interface_to_add;
+		target [j] = source [i];
+	}
+	if (i == j)
+		target [j] = interface_to_add;
+}
+
+static MonoVTable *
+icastable_get_cached_extended_vtable (MonoDomain *domain, MonoObject *obj_instance, MonoClass **cache_key, MonoClass **interface_table, int interface_table_size, GHashTable *cache, MonoError *error)
+{
+	MonoVTable *extended_vtable = NULL;
+
+	mono_domain_lock (domain);
+
+	MonoVTable *cache_item = (MonoVTable *)g_hash_table_lookup (cache, cache_key);
+	if (!cache_item) {
+		// Cache miss, create new extended vtable and add to cache.
+		extended_vtable = mono_class_extend_vtable (domain, obj_instance->vtable->klass, interface_table, interface_table_size, error);
+		if (extended_vtable != NULL && is_ok (error)) {
+			MonoClass **cloned_interface_table = mono_domain_alloc0 (domain, sizeof (MonoClass *) * (interface_table_size + 1));
+			if (cloned_interface_table) {
+				cloned_interface_table[0] = GINT_TO_POINTER (interface_table_size + 1);
+				memcpy (cloned_interface_table + 1, interface_table, sizeof (MonoClass *) * (interface_table_size));
+				extended_vtable->icastable_interface_table = cloned_interface_table;
+				cache_item = extended_vtable;
+			}
+
+			if (cache_item != NULL) {
+				int cache_key_size = GPOINTER_TO_INT (cache_key[0]);
+				MonoClass **cloned_cached_key = mono_domain_alloc0 (domain, sizeof (MonoClass *) * cache_key_size);
+				if (cloned_cached_key) {
+					memcpy (cloned_cached_key, cache_key, sizeof (MonoClass *) * cache_key_size);
+					g_hash_table_insert (cache, cloned_cached_key, cache_item);
+				}
+			}
+		}
+	}
+
+	mono_domain_unlock (domain);
+
+	return cache_item;
+}
+
+static MonoVTable *
+icastable_get_extended_vtable (MonoDomain *domain, MonoObject *obj_instance, MonoClass *klass, MonoError *error)
+{
+	MonoVTable *extended_vtable = NULL;
+	MonoClass **interface_table = obj_instance->vtable->icastable_interface_table;
+	int interface_table_size = GPOINTER_TO_INT (interface_table[0]) - 1;
+
+	g_assert (interface_table_size >= 0);
+
+	// Create cache key used in cache lookup. Cache key looks like this:
+	// [0] Size of all items in key.
+	// [1] Type's class.
+	// [2..Size] ICastable supported interfaces in extended vtable.
+	// Additional 3 items are size slot, type class + new interface.
+	MonoClass **cache_key = g_new0 (MonoClass *, interface_table_size + 3);
+	if (cache_key != NULL) {
+		// Build cache key.
+		cache_key[0] = GINT_TO_POINTER (interface_table_size + 3);
+		cache_key[1] = obj_instance->vtable->klass;
+
+		// New list of interfaces are embedded in cache key.
+		MonoClass **new_interface_table = cache_key + 2;
+		int new_interface_table_size = interface_table_size + 1;
+
+		// Add current interfaces + additional interface to new interface table in sort order.
+		icastable_add_interface_to_sorted_vector (interface_table + 1, interface_table_size, new_interface_table, klass);
+
+		// Look up in cache (will add item to cache if not already present).
+		extended_vtable = icastable_get_cached_extended_vtable (domain,
+								obj_instance, 
+								cache_key,
+								new_interface_table,
+								new_interface_table_size,
+								domain->icastable_interface_cache_hash,
+								error);
+
+		g_free (cache_key);
+	}
+
+	return extended_vtable;
+}
+
+static gboolean
+icastable_isinst_mbyref (MonoObjectHandle obj, MonoClass *klass, MonoError *error)
+{
+	// ICastable only suport interfaces.
+	g_assert (mono_class_is_interface (klass));
+
+	// Get interface type handle passed to IsInstanceOfInterface.
 	MonoReflectionTypeHandle ref_type = mono_type_get_object_handle (mono_domain_get (), &klass->byval_arg, error);
 	if (!is_ok (error))
 		return FALSE;
 
+	MonoObject *obj_instance = MONO_HANDLE_RAW (obj);
 	MonoException *cast_exception = NULL;
 	gpointer args[3];
-	args[0] = MONO_HANDLE_RAW (obj);
+	args[0] = obj_instance;
 	args[1] = MONO_HANDLE_RAW (ref_type);
 	args[2] = &cast_exception;
 
+	static MonoMethod *helper_is_instance_of_interface = NULL;
 	if (helper_is_instance_of_interface == NULL) {
 		helper_is_instance_of_interface = mono_class_get_method_from_name (mono_defaults.icastablehelpers_class, "IsInstanceOfInterface", 3);
 	}
 
+	// Call ICastable::IsInstanceOfInterface to check for support of requested interface type.
 	MonoObject *isinst_res_obj = mono_runtime_invoke_checked (helper_is_instance_of_interface, NULL, args, error);
 	gboolean isinst_of = (isinst_res_obj != NULL) ? *((MonoBoolean*)mono_object_unbox (isinst_res_obj)) : FALSE;
 	if (!is_ok (error) || !isinst_of) {
@@ -6708,43 +6807,13 @@ mono_object_isinst_mbyref_icastable (MonoObjectHandle obj, MonoClass *klass, Mon
 		return FALSE;
 	}
 
-	MonoObject *obj_instance = MONO_HANDLE_RAW (obj);
-	MonoClass **current_interface_table = obj_instance->vtable->icastable_interface_table;
-	MonoClass **new_interface_table = NULL;
-	int current_interface_count = 0;
+	// Requested interface type supported by ICastable, get hold of extended vtable including current type +
+	// additional ICastable interface previously requested for this object instance.
+	MonoVTable *extended_vtable = icastable_get_extended_vtable (mono_domain_get (), obj_instance, klass, error);
 
-	if (current_interface_table != g_empty_icastable_interface_table) {
-		// Count current number of interfaces.
-		while (current_interface_table[current_interface_count] != NULL)
-			current_interface_count++;
+	if (!extended_vtable)
+		return FALSE;
 
-		// Create new interface table, one additional slot + NULL.
-		new_interface_table = g_new0 (MonoClass *, current_interface_count + 2);
-
-		// Keep it sorted on MonoClass address.
-		int i;
-		int j;
-
-		for (i = 0, j = 0; i < current_interface_count; i++, j++) {
-			if (current_interface_table [i] > klass && i == j)
-				new_interface_table [j++] = klass;
-			new_interface_table [j] = current_interface_table [i];
-		}
-		if (i == j)
-			new_interface_table [j] = klass;
-
-	} else {
-		// Create new interface table, one slot + NULL.
-		new_interface_table = g_new0 (MonoClass *, 2);
-		new_interface_table[0] = klass;
-	}
-
-	//If new vtable, cache vtable instance on key in domain. If found in cache, use it as obj vtable.
-	//Need to clone key, setup list, type in cache should have list + vtable.
-
-	//FIX, need to upgrade vtable with extended interface map.
-	MonoVTable *extended_vtable = mono_class_extend_vtable (obj_instance->vtable->domain, obj_instance->vtable->klass, new_interface_table, current_interface_count + 1, error);
-	extended_vtable->icastable_interface_table = new_interface_table;
 	MONO_HANDLE_SETVAL (obj, vtable, MonoVTable*, extended_vtable);
 	return TRUE;
 }
@@ -6775,7 +6844,7 @@ mono_object_handle_isinst_mbyref (MonoObjectHandle obj, MonoClass *klass, MonoEr
 			}
 		}
 		else if (mono_vtable_is_icastable (vt)) {
-			if (mono_object_isinst_mbyref_icastable (obj, klass, error)) {
+			if (icastable_isinst_mbyref (obj, klass, error)) {
 				MONO_HANDLE_ASSIGN (result, obj);
 				goto leave;
 			}
