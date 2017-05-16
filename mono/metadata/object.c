@@ -80,8 +80,10 @@ static GENERATE_GET_CLASS_WITH_CACHE (activation_services, "System.Runtime.Remot
 #define ldstr_unlock() mono_os_mutex_unlock (&ldstr_section)
 static mono_mutex_t ldstr_section;
 
-static MonoClass	*empty_icastable_interface_table [] = { GINT_TO_POINTER (1) };
-static MonoMethod	*icastable_helper_isinstanceofinterface;
+#ifdef HAVE_ICASTABLE_SUPPORT
+static MonoClass *empty_icastable_interface_table [] = { GINT_TO_POINTER (1) };
+static MonoMethod *icastable_helper_isinstanceofinterface;
+#endif
 
 /**
  * mono_runtime_object_init:
@@ -2102,8 +2104,10 @@ mono_class_create_runtime_vtable (MonoDomain *domain, MonoClass *klass, MonoErro
 
 	mono_vtable_set_is_remote (vt, mono_class_is_contextbound (klass));
 
+#ifdef HAVE_ICASTABLE_SUPPORT
 	if (MONO_VTABLE_IMPLEMENTS_INTERFACE (vt, mono_defaults.icastable_class->interface_id))
 		vt->icastable_interface_table = empty_icastable_interface_table;
+#endif
 
 	/*  class_vtable_array keeps an array of created vtables
 	 */
@@ -6683,6 +6687,7 @@ mono_object_isinst_mbyref (MonoObject *obj_raw, MonoClass *klass)
 	HANDLE_FUNCTION_RETURN_OBJ (result);
 }
 
+#ifdef HAVE_ICASTABLE_SUPPORT
 static void
 icastable_add_interface_to_sorted_vector (MonoClass **source, int count, MonoClass **target, MonoClass *interface_to_add)
 {
@@ -6823,6 +6828,7 @@ icastable_isinst_mbyref (MonoObjectHandle obj, MonoClass *klass, MonoError *erro
 	MONO_HANDLE_SETVAL (obj, vtable, MonoVTable*, extended_vtable);
 	return TRUE;
 }
+#endif /* HAVE_ICASTABLE_SUPPORT */
 
 MonoObjectHandle
 mono_object_handle_isinst_mbyref (MonoObjectHandle obj, MonoClass *klass, MonoError *error)
@@ -6849,12 +6855,14 @@ mono_object_handle_isinst_mbyref (MonoObjectHandle obj, MonoClass *klass, MonoEr
 				goto leave;
 			}
 		}
+#ifdef HAVE_ICASTABLE_SUPPORT
 		else if (mono_vtable_is_icastable (vt)) {
 			if (icastable_isinst_mbyref (obj, klass, error)) {
 				MONO_HANDLE_ASSIGN (result, obj);
 				goto leave;
 			}
 		}
+#endif
 		/*If the above checks failed we are in the slow path of possibly raising an exception. So it's ok to it this way.*/
 		else if (mono_class_has_variant_generic_params (klass) && mono_class_is_assignable_from (klass, mono_handle_class (obj))) {
 			MONO_HANDLE_ASSIGN (result, obj);

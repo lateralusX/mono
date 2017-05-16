@@ -346,7 +346,9 @@ struct _MonoDomain {
 	GPtrArray          *class_vtable_array;
 	/* maps remote class key -> MonoRemoteClass */
 	GHashTable         *proxy_vtable_hash;
+#ifdef HAVE_ICASTABLE_SUPPORT
 	GHashTable         *icastable_interface_cache_hash;
+#endif
 	/* Protected by 'jit_code_hash_lock' */
 	MonoInternalHashTable jit_code_hash;
 	mono_mutex_t    jit_code_hash_lock;

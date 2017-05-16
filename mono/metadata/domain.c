@@ -409,7 +409,9 @@ mono_domain_create (void)
 	domain->assembly_bindings_parsed = FALSE;
 	domain->class_vtable_array = g_ptr_array_new ();
 	domain->proxy_vtable_hash = g_hash_table_new ((GHashFunc)mono_ptrarray_hash, (GCompareFunc)mono_ptrarray_equal);
+#ifdef HAVE_ICASTABLE_SUPPORT
 	domain->icastable_interface_cache_hash = g_hash_table_new ((GHashFunc)mono_ptrarray_hash, (GCompareFunc)mono_ptrarray_equal);
+#endif
 	domain->static_data_array = NULL;
 	mono_jit_code_hash_init (&domain->jit_code_hash);
 	domain->ldstr_table = mono_g_hash_table_new_type ((GHashFunc)mono_string_hash, (GCompareFunc)mono_string_equal, MONO_HASH_KEY_VALUE_GC, MONO_ROOT_SOURCE_DOMAIN, "domain string constants table");
@@ -759,11 +761,13 @@ mono_init_internal (const char *filename, const char *exe_filename, const char *
 	mono_defaults.threadpool_wait_callback_class = mono_class_load_from_name (
 		mono_defaults.corlib, "System.Threading", "_ThreadPoolWaitCallback");
 
+#ifdef HAVE_ICASTABLE_SUPPORT
 	mono_defaults.icastable_class = mono_class_load_from_name (
 		mono_defaults.corlib, "System.Runtime.CompilerServices", "ICastable");
 
 	mono_defaults.icastablehelpers_class = mono_class_load_from_name (
 		mono_defaults.corlib, "System.Runtime.CompilerServices", "ICastableHelpers");
+#endif
 
 	mono_defaults.threadpool_perform_wait_callback_method = mono_class_get_method_from_name (
 		mono_defaults.threadpool_wait_callback_class, "PerformWaitCallback", 0);
@@ -1157,8 +1161,10 @@ mono_domain_free (MonoDomain *domain, gboolean force)
 	domain->class_vtable_array = NULL;
 	g_hash_table_destroy (domain->proxy_vtable_hash);
 	domain->proxy_vtable_hash = NULL;
+#ifdef HAVE_ICASTABLE_SUPPORT
 	g_hash_table_destroy (domain->icastable_interface_cache_hash);
 	domain->icastable_interface_cache_hash = NULL;
+#endif
 	if (domain->static_data_array) {
 		mono_gc_free_fixed (domain->static_data_array);
 		domain->static_data_array = NULL;

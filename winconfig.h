@@ -52,6 +52,8 @@
 
 #endif
 
+#define HAVE_ICASTABLE_SUPPORT 1
+
 /*
  * Features that are not required in the Windows port
  */

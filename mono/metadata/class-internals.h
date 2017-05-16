@@ -1112,8 +1112,10 @@ typedef struct {
 	MonoClass *critical_finalizer_object; /* MAYBE NULL */
 	MonoClass *generic_ireadonlylist_class;
 	MonoClass *threadpool_wait_callback_class;
+#ifdef HAVE_ICASTABLE_SUPPORT
 	MonoClass *icastable_class;
 	MonoClass *icastablehelpers_class;
+#endif
 	MonoMethod *threadpool_perform_wait_callback_method;
 } MonoDefaults;
 
@@ -1127,8 +1129,9 @@ typedef struct {
 
 #define mono_object_is_transparent_proxy(object) (mono_class_is_transparent_proxy (mono_object_class (object)))
 
+#ifdef HAVE_ICASTABLE_SUPPORT
 #define mono_vtable_is_icastable(vtable) (vtable->icastable_interface_table != NULL)
-
+#endif
 
 #define GENERATE_GET_CLASS_WITH_CACHE_DECL(shortname) \
 MonoClass* mono_class_get_##shortname##_class (void);

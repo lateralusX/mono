@@ -40,7 +40,9 @@ static guint32 trampoline_calls, jit_trampolines, unbox_trampolines, static_rgct
 #define mono_trampolines_unlock() mono_os_mutex_unlock (&trampolines_mutex)
 static mono_mutex_t trampolines_mutex;
 
+#ifdef HAVE_ICASTABLE_SUPPORT
 static MonoMethod *icastable_helper_getimpltype;
+#endif
 
 #ifdef MONO_ARCH_GSHARED_SUPPORTED
 
@@ -845,7 +847,7 @@ mono_magic_trampoline (mgreg_t *regs, guint8 *code, gpointer arg, guint8* tramp)
 }
 
 static gpointer
-mono_vcall_resolve_vtable_slot (MonoVTable *vt, int slot, gpointer **vtable_slot_out, MonoMethod **m_out, MonoError *error)
+resolve_vtable_slot (MonoVTable *vt, int slot, gpointer **vtable_slot_out, MonoMethod **m_out, MonoError *error)
 {
 	gpointer *vtable_slot = NULL;
 	MonoMethod *m = NULL;
@@ -894,8 +896,9 @@ mono_vcall_resolve_vtable_slot (MonoVTable *vt, int slot, gpointer **vtable_slot
 	return ftnptr;
 }
 
+#ifdef HAVE_ICASTABLE_SUPPORT
 static gpointer
-mono_vcall_resolve_icastable_vtable_slot (mgreg_t *regs, guint8 *code, int slot, MonoObject *this_arg, MonoVTable *vt, MonoError *error)
+icastable_resolve_vtable_slot (mgreg_t *regs, guint8 *code, int slot, MonoObject *this_arg, MonoVTable *vt, MonoError *error)
 {
 	gpointer res = NULL;
 
@@ -946,7 +949,7 @@ mono_vcall_resolve_icastable_vtable_slot (mgreg_t *regs, guint8 *code, int slot,
 			g_assert (impl_type_interface_offset != -1);
 
 			// Get implementing method and vtable slot in implementing type.
-			res = mono_vcall_resolve_vtable_slot (impl_type_vt, impl_type_interface_offset + method->slot, &impl_type_vtable_slot, &impl_type_m, error);
+			res = resolve_vtable_slot (impl_type_vt, impl_type_interface_offset + method->slot, &impl_type_vtable_slot, &impl_type_m, error);
 			if (res == NULL)
 				res = common_call_trampoline (regs, code, impl_type_m, impl_type_vt, impl_type_vtable_slot, error);
 
@@ -968,6 +971,7 @@ mono_vcall_resolve_icastable_vtable_slot (mgreg_t *regs, guint8 *code, int slot,
 
 	return res;
 }
+#endif /* HAVE_ICASTABLE_SUPPORT */
 
 /**
  * mono_vcall_trampoline:
@@ -1006,13 +1010,15 @@ mono_vcall_trampoline (mgreg_t *regs, guint8 *code, int slot, guint8 *tramp)
 
 	mono_error_init (&error);
 
+#ifdef HAVE_ICASTABLE_SUPPORT
 	if (mono_vtable_is_icastable (vt)) {
-		res = mono_vcall_resolve_icastable_vtable_slot (regs, code, slot, this_arg, vt, &error);
+		res = icastable_resolve_vtable_slot (regs, code, slot, this_arg, vt, &error);
 		if (res != NULL || (res == NULL && !is_ok (&error)))
 			goto leave;
 	}
+#endif /* HAVE_ICASTABLE_SUPPORT */
 
-	res = mono_vcall_resolve_vtable_slot (vt, slot, &vtable_slot, &m, &error);
+	res = resolve_vtable_slot (vt, slot, &vtable_slot, &m, &error);
 	if (res != NULL)
 		goto leave;
 
