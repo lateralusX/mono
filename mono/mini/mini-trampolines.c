@@ -940,16 +940,24 @@ icastable_resolve_vtable_slot (mgreg_t *regs, guint8 *code, int slot, MonoObject
 		MonoClass *impl_type = mono_class_from_mono_type (cast_ref_type->type);
 		if (impl_type != NULL) {
 			MonoVTable *impl_type_vt = mono_class_vtable (mono_domain_get (), impl_type);
+			int impl_type_vtable_slot_index = 0;
 			gpointer *impl_type_vtable_slot = NULL;
 			MonoMethod *impl_type_m = NULL;
 
 			// Slot is incorrect for implementors vtable since it is implemented in different type.
-			gboolean no_exact_match;
-			int impl_type_interface_offset = mono_class_interface_offset_with_variance (impl_type, method->klass, &no_exact_match);
-			g_assert (impl_type_interface_offset != -1);
+			if (method->slot >= 0) {
+				// Vtable slot.
+				gboolean no_exact_match;
+				int offset = mono_class_interface_offset_with_variance (impl_type, method->klass, &no_exact_match);
+				impl_type_vtable_slot_index = offset + method->slot;
+				g_assert (impl_type_vtable_slot_index >= 0);
+			} else {
+				// IMT slot.
+				impl_type_vtable_slot_index = method->slot;
+			}
 
 			// Get implementing method and vtable slot in implementing type.
-			res = resolve_vtable_slot (impl_type_vt, impl_type_interface_offset + method->slot, &impl_type_vtable_slot, &impl_type_m, error);
+			res = resolve_vtable_slot (impl_type_vt, impl_type_vtable_slot_index, &impl_type_vtable_slot, &impl_type_m, error);
 			if (res == NULL)
 				res = common_call_trampoline (regs, code, impl_type_m, impl_type_vt, impl_type_vtable_slot, error);
 
@@ -959,13 +967,13 @@ icastable_resolve_vtable_slot (mgreg_t *regs, guint8 *code, int slot, MonoObject
 			}
 
 			// Patch slot with value of impl type vtable slot.
-			if (slot >= 0) {
-				// Virtual call.
-				vt->vtable [slot] = *impl_type_vtable_slot;
-			} else {
-				// IMT call.
-				((gpointer*)vt) [slot] = *impl_type_vtable_slot;
-			}
+			//if (slot >= 0) {
+			//	// Virtual call.
+			//	vt->vtable [slot] = *impl_type_vtable_slot;
+			//} else {
+			//	// IMT call.
+			//	((gpointer*)vt) [slot] = *impl_type_vtable_slot;
+			//}
 		}
 	}
 

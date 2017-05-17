@@ -1472,7 +1472,7 @@ build_imt_slots (MonoClass *klass, MonoVTable *vt, MonoDomain *domain, gpointer*
 				imt_builder [i] = entries;
 			}
 
-			if (has_generic_virtual || has_variant_iface) {
+			if (has_generic_virtual || has_variant_iface || mono_vtable_is_icastable (vt)) {
 				/*
 				 * There might be collisions later when the the trampoline is expanded.
 				 */
@@ -2176,6 +2176,8 @@ mono_class_create_runtime_vtable (MonoDomain *domain, MonoClass *klass, MonoErro
 
 	return vt;
 }
+
+typedef gpointer (*mono_class_extend_vtable_trampoline_factory)(MonoDomain *, MonoMethod *, gpointer arg, MonoError *);
 
 static MonoVTable *
 mono_class_extend_vtable (MonoDomain *domain, MonoClass *template_class, MonoClass *additional_interfaces[], uint32_t additional_interfaces_count, MonoError *error)
@@ -6787,12 +6789,14 @@ icastable_isinst_mbyref (MonoObjectHandle obj, MonoClass *klass, MonoError *erro
 	// ICastable only suport interfaces.
 	g_assert (mono_class_is_interface (klass));
 
+	MonoObject *obj_instance = MONO_HANDLE_RAW (obj);
+	MonoDomain *domain = obj_instance->vtable->domain;
+
 	// Get interface type handle passed to IsInstanceOfInterface.
-	MonoReflectionTypeHandle ref_type = mono_type_get_object_handle (mono_domain_get (), &klass->byval_arg, error);
+	MonoReflectionTypeHandle ref_type = mono_type_get_object_handle (domain, &klass->byval_arg, error);
 	if (!is_ok (error))
 		return FALSE;
 
-	MonoObject *obj_instance = MONO_HANDLE_RAW (obj);
 	MonoException *cast_exception = NULL;
 	gpointer args[3];
 	args[0] = obj_instance;
@@ -6820,12 +6824,12 @@ icastable_isinst_mbyref (MonoObjectHandle obj, MonoClass *klass, MonoError *erro
 
 	// Requested interface type supported by ICastable, get hold of extended vtable including current type +
 	// additional ICastable interface previously requested for this object instance.
-	MonoVTable *extended_vtable = icastable_get_extended_vtable (mono_domain_get (), obj_instance, klass, error);
+	//MonoVTable *extended_vtable = icastable_get_extended_vtable (domain, obj_instance, klass, error);
 
-	if (!extended_vtable)
-		return FALSE;
+	//if (!extended_vtable)
+	//	return FALSE;
 
-	MONO_HANDLE_SETVAL (obj, vtable, MonoVTable*, extended_vtable);
+	//MONO_HANDLE_SETVAL (obj, vtable, MonoVTable*, extended_vtable);
 	return TRUE;
 }
 #endif /* HAVE_ICASTABLE_SUPPORT */
