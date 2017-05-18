@@ -327,6 +327,7 @@ System.Runtime/GCSettings.cs
 System.Runtime/MemoryFailPoint.cs
 System.Runtime.CompilerServices/ConditionalWeakTable.cs
 System.Runtime.CompilerServices/RuntimeHelpers.cs
+System.Runtime.CompilerServices/ICastable.cs
 System.Runtime.Hosting/ActivationArguments.cs
 System.Runtime.Hosting/ApplicationActivator.cs
 System.Runtime.InteropServices/_Activator.cs
