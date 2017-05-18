@@ -382,6 +382,47 @@ emit_special_array_iface_check (MonoCompile *cfg, MonoInst *src, MonoClass* klas
 
 }
 
+static void
+emit_icastable_check (MonoCompile *cfg, int vtable_reg, MonoBasicBlock *is_icastable_false)
+{
+	// Check for ICastable support.
+	int icastable_reg = alloc_preg (cfg);
+	MONO_EMIT_NEW_LOAD_MEMBASE_OP (cfg, OP_LOADU1_MEMBASE, icastable_reg, vtable_reg, MONO_STRUCT_OFFSET (MonoVTable, icastable));
+	MONO_EMIT_NEW_BIALU_IMM (cfg, OP_COMPARE_IMM, -1, icastable_reg, 1);
+	MONO_EMIT_NEW_BRANCH_BLOCK (cfg, OP_IBNE_UN, is_icastable_false);
+}
+
+static void
+emit_castclass_icastable_check (MonoCompile *cfg, MonoInst *src, MonoClass *klass, int vtable_reg, MonoBasicBlock *is_icastable_true, int context_used)
+{
+	MonoBasicBlock *is_icastable_false;
+	NEW_BBLOCK (cfg, is_icastable_false);
+
+	emit_icastable_check (cfg, vtable_reg, is_icastable_false);
+	emit_castclass_with_cache (cfg, src, klass, context_used);
+
+	MONO_EMIT_NEW_BRANCH_BLOCK (cfg, OP_BR, is_icastable_true);
+
+	MONO_START_BB (cfg, is_icastable_false);
+}
+
+static void
+emit_isinst_icastable_check (MonoCompile *cfg, MonoInst *src, MonoClass *klass, int vtable_reg, int res_reg, MonoBasicBlock *is_icastable_true, int context_used)
+{
+	MonoBasicBlock *is_icastable_false;
+	NEW_BBLOCK (cfg, is_icastable_false);
+
+	emit_icastable_check (cfg, vtable_reg, is_icastable_false);
+	MonoInst *res_inst = emit_isinst_with_cache (cfg, src, klass, context_used);
+
+	MonoInst *move;
+	EMIT_NEW_UNALU (cfg, move, OP_MOVE, res_reg, res_inst->dreg);
+
+	MONO_EMIT_NEW_BRANCH_BLOCK (cfg, OP_BR, is_icastable_true);
+
+	MONO_START_BB (cfg, is_icastable_false);
+}
+
 /*
  * Returns NULL and set the cfg exception on error.
  */
@@ -411,29 +452,32 @@ handle_castclass (MonoCompile *cfg, MonoClass *klass, MonoInst *src, int context
 	mini_save_cast_details (cfg, klass, obj_reg, FALSE);
 
 	if (mono_class_is_interface (klass)) {
-		int tmp_reg = alloc_preg (cfg);
-#ifndef DISABLE_REMOTING
+		int vtable_reg = alloc_preg (cfg);
 		MonoBasicBlock *interface_fail_bb;
 		int klass_reg = alloc_preg (cfg);
 
 		NEW_BBLOCK (cfg, interface_fail_bb);
 
-		MONO_EMIT_NEW_LOAD_MEMBASE (cfg, tmp_reg, obj_reg, MONO_STRUCT_OFFSET (MonoObject, vtable));
-		mini_emit_iface_cast (cfg, tmp_reg, klass, interface_fail_bb, is_null_bb);
+		MONO_EMIT_NEW_LOAD_MEMBASE (cfg, vtable_reg, obj_reg, MONO_STRUCT_OFFSET (MonoObject, vtable));
+		mini_emit_iface_cast (cfg, vtable_reg, klass, interface_fail_bb, is_null_bb);
 
 		// iface bitmap check failed
 		MONO_START_BB (cfg, interface_fail_bb);
 
 		//Check if it's a rank zero array and emit fallback casting
-		emit_special_array_iface_check (cfg, src, klass, tmp_reg, is_null_bb, context_used);
+		emit_special_array_iface_check (cfg, src, klass, vtable_reg, is_null_bb, context_used);
 
-		MONO_EMIT_NEW_LOAD_MEMBASE (cfg, klass_reg, tmp_reg, MONO_STRUCT_OFFSET (MonoVTable, klass));
+		// Check if ICastable is supported for casting.
+		emit_castclass_icastable_check (cfg, src, klass, vtable_reg, is_null_bb, context_used);
+
+#ifndef DISABLE_REMOTING
+		MONO_EMIT_NEW_LOAD_MEMBASE (cfg, klass_reg, vtable_reg, MONO_STRUCT_OFFSET (MonoVTable, klass));
 
 		mini_emit_class_check (cfg, klass_reg, mono_defaults.transparent_proxy_class);
 
-		tmp_reg = alloc_preg (cfg);
-		MONO_EMIT_NEW_LOAD_MEMBASE (cfg, tmp_reg, obj_reg, MONO_STRUCT_OFFSET (MonoTransparentProxy, custom_type_info));
-		MONO_EMIT_NEW_BIALU_IMM (cfg, OP_COMPARE_IMM, -1, tmp_reg, 0);
+		int custom_type_info_reg = alloc_preg (cfg);
+		MONO_EMIT_NEW_LOAD_MEMBASE (cfg, custom_type_info_reg, obj_reg, MONO_STRUCT_OFFSET (MonoTransparentProxy, custom_type_info));
+		MONO_EMIT_NEW_BIALU_IMM (cfg, OP_COMPARE_IMM, -1, custom_type_info_reg, 0);
 		MONO_EMIT_NEW_COND_EXC (cfg, EQ, "InvalidCastException");
 
 		MonoInst *args [1] = { src };
@@ -443,22 +487,7 @@ handle_castclass (MonoCompile *cfg, MonoClass *klass, MonoInst *src, int context
 
 		MONO_EMIT_NEW_BRANCH_BLOCK (cfg, OP_BR, is_null_bb);
 #else
-		MonoBasicBlock *interface_fail_bb = NULL;
-
-		MONO_EMIT_NEW_LOAD_MEMBASE (cfg, tmp_reg, obj_reg, MONO_STRUCT_OFFSET (MonoObject, vtable));
-
-		if (klass->is_array_special_interface) {
-			NEW_BBLOCK (cfg, interface_fail_bb);
-			mini_emit_iface_cast (cfg, tmp_reg, klass, interface_fail_bb, is_null_bb);
-			// iface bitmap check failed
-			MONO_START_BB (cfg, interface_fail_bb);
-
-			//Check if it's a rank zero array and emit fallback casting
-			emit_special_array_iface_check (cfg, src, klass, tmp_reg, is_null_bb, context_used);
-		} else {
-			mini_emit_iface_cast (cfg, tmp_reg, klass, NULL, NULL);
-			MONO_EMIT_NEW_BRANCH_BLOCK (cfg, OP_BR, is_null_bb);
-		}
+		MONO_EMIT_NEW_COND_EXC (cfg, NE_UN, "InvalidCastException");
 #endif
 	} else if (mono_class_is_marshalbyref (klass)) {
 #ifndef DISABLE_REMOTING
@@ -592,6 +621,9 @@ handle_isinst (MonoCompile *cfg, MonoClass *klass, MonoInst *src, int context_us
 
 			MONO_START_BB (cfg, not_an_array);
 		}
+
+		// Check if ICastable is supported for casting.
+		emit_isinst_icastable_check (cfg, src, klass, vtable_reg, res_reg, end_bb, context_used);
 
 #ifndef DISABLE_REMOTING
 		int tmp_reg, klass_reg;

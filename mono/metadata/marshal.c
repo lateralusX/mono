@@ -153,6 +153,9 @@ mono_marshal_set_last_error_windows (int error);
 static MonoObject *
 mono_marshal_isinst_with_cache (MonoObject *obj, MonoClass *klass, uintptr_t *cache);
 
+static MonoObject *
+mono_marshal_castclass_with_cache (MonoObject *obj, MonoClass *klass, uintptr_t *cache);
+
 static void init_safe_handle (void);
 
 static void*
@@ -354,6 +357,7 @@ mono_marshal_init (void)
 		register_icall (mono_gchandle_get_target, "mono_gchandle_get_target", "object int32", TRUE);
 		register_icall (mono_gchandle_new, "mono_gchandle_new", "uint32 object bool", TRUE);
 		register_icall (mono_marshal_isinst_with_cache, "mono_marshal_isinst_with_cache", "object object ptr ptr", FALSE);
+		register_icall (mono_marshal_castclass_with_cache, "mono_marshal_castclass_with_cache", "object object ptr ptr", FALSE);
 		register_icall (mono_marshal_ftnptr_eh_callback, "mono_marshal_ftnptr_eh_callback", "void uint32", TRUE);
 		register_icall (mono_threads_enter_gc_safe_region_unbalanced, "mono_threads_enter_gc_safe_region_unbalanced", "ptr ptr", TRUE);
 		register_icall (mono_threads_exit_gc_safe_region_unbalanced, "mono_threads_exit_gc_safe_region_unbalanced", "void ptr ptr", TRUE);
@@ -9022,7 +9026,7 @@ mono_marshal_get_vtfixup_ftnptr (MonoImage *image, guint32 token, guint16 type)
  * on the stack after a cache miss
  */
 static void
-generate_check_cache (int obj_arg_position, int class_arg_position, int cache_arg_position, // In-parameters
+generate_check_cache (int obj_arg_position, int class_arg_position, int cache_arg_position, gpointer check_cache_icall, // In-parameters
 											int *null_obj, int *cache_hit_neg, int *cache_hit_pos, // Out-parameters
 											MonoMethodBuilder *mb)
 {
@@ -9068,14 +9072,53 @@ generate_check_cache (int obj_arg_position, int class_arg_position, int cache_ar
 	// slow path
 	mono_mb_patch_branch (mb, cache_miss_pos);
 
-	// if isinst
+	// if isinst/castclass
 	mono_mb_emit_ldarg (mb, obj_arg_position);
 	mono_mb_emit_ldarg (mb, class_arg_position);
 	mono_mb_emit_ldarg (mb, cache_arg_position);
-	mono_mb_emit_icall (mb, mono_marshal_isinst_with_cache);
+	mono_mb_emit_icall (mb, check_cache_icall);
 }
 
 #endif /* DISABLE_JIT */
+
+static MonoObject *
+mono_marshal_isinst_castclass_with_cache (MonoObject *obj, MonoClass *klass, uintptr_t *cache, gboolean throw_exception)
+{
+	MonoError error;
+	MonoObject *isinst = mono_object_isinst_checked (obj, klass, &error);
+
+	if (throw_exception && mono_error_set_pending_exception (&error)) {
+		return NULL;
+	} else if (!is_ok (&error)) {
+		mono_error_cleanup (&error);
+		return NULL;
+	}
+
+	if (mono_object_is_transparent_proxy (obj))
+		return isinst;
+
+	uintptr_t cache_update = (uintptr_t)obj->vtable;
+	if (!isinst)
+		cache_update = cache_update | 0x1;
+
+	*cache = cache_update;
+
+	return isinst;
+}
+
+/* this is an icall */
+static MonoObject *
+mono_marshal_isinst_with_cache (MonoObject *obj, MonoClass *klass, uintptr_t *cache)
+{
+	return mono_marshal_isinst_castclass_with_cache (obj, klass, cache, FALSE);
+}
+
+/* this is an icall */
+static MonoObject *
+mono_marshal_castclass_with_cache (MonoObject *obj, MonoClass *klass, uintptr_t *cache)
+{
+	return mono_marshal_isinst_castclass_with_cache (obj, klass, cache, TRUE);
+}
 
 /**
  * mono_marshal_get_castclass_with_cache:
@@ -9107,7 +9150,7 @@ mono_marshal_get_castclass_with_cache (void)
 	sig->pinvoke = 0;
 
 #ifndef DISABLE_JIT
-	generate_check_cache (obj_arg_position, class_arg_position, cache_arg_position, 
+	generate_check_cache (obj_arg_position, class_arg_position, cache_arg_position, mono_marshal_castclass_with_cache,
 												&return_null_pos, &negative_cache_hit_pos, &positive_cache_hit_pos, mb);
 	invalid_cast_pos = mono_mb_emit_branch (mb, CEE_BRFALSE);
 
@@ -9138,27 +9181,6 @@ mono_marshal_get_castclass_with_cache (void)
 	mono_mb_free (mb);
 
 	return cached;
-}
-
-/* this is an icall */
-static MonoObject *
-mono_marshal_isinst_with_cache (MonoObject *obj, MonoClass *klass, uintptr_t *cache)
-{
-	MonoError error;
-	MonoObject *isinst = mono_object_isinst_checked (obj, klass, &error);
-	if (mono_error_set_pending_exception (&error))
-		return NULL;
-
-	if (mono_object_is_transparent_proxy (obj))
-		return isinst;
-
-	uintptr_t cache_update = (uintptr_t)obj->vtable;
-	if (!isinst)
-		cache_update = cache_update | 0x1;
-
-	*cache = cache_update;
-
-	return isinst;
 }
 
 /**
@@ -9194,7 +9216,7 @@ mono_marshal_get_isinst_with_cache (void)
 	sig->pinvoke = 0;
 
 #ifndef DISABLE_JIT
-	generate_check_cache (obj_arg_position, class_arg_position, cache_arg_position, 
+	generate_check_cache (obj_arg_position, class_arg_position, cache_arg_position, mono_marshal_isinst_with_cache,
 		&return_null_pos, &negative_cache_hit_pos, &positive_cache_hit_pos, mb);
 	// Return the object gotten via the slow path.
 	mono_mb_emit_byte (mb, CEE_RET);

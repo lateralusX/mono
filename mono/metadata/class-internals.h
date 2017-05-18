@@ -460,6 +460,7 @@ struct MonoVTable {
 	guint8      rank;
 	/* Keep this a guint8, the jit depends on it */
 	guint8      initialized; /* cctor has been run */
+	guint8		icastable; /* class implements ICastable */
 	guint remote          : 1; /* class is remotely activated */
 	guint init_failed     : 1; /* cctor execution failed */
 	guint has_static_fields : 1; /* pointer to the data stored at the end of the vtable array */
@@ -1110,6 +1111,8 @@ typedef struct {
 	MonoClass *critical_finalizer_object; /* MAYBE NULL */
 	MonoClass *generic_ireadonlylist_class;
 	MonoClass *threadpool_wait_callback_class;
+	MonoClass *icastable_class;
+	MonoClass *icastablehelpers_class;
 	MonoMethod *threadpool_perform_wait_callback_method;
 } MonoDefaults;
 
@@ -1123,6 +1126,7 @@ typedef struct {
 
 #define mono_object_is_transparent_proxy(object) (mono_class_is_transparent_proxy (mono_object_class (object)))
 
+#define mono_vtable_is_icastable(vtable) (vtable->icastable != 0)
 
 #define GENERATE_GET_CLASS_WITH_CACHE_DECL(shortname) \
 MonoClass* mono_class_get_##shortname##_class (void);

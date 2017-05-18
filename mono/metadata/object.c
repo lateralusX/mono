@@ -80,6 +80,7 @@ static GENERATE_GET_CLASS_WITH_CACHE (activation_services, "System.Runtime.Remot
 #define ldstr_unlock() mono_os_mutex_unlock (&ldstr_section)
 static mono_mutex_t ldstr_section;
 
+static MonoMethod *icastable_helper_isinstanceofinterface;
 
 /**
  * mono_runtime_object_init:
@@ -1380,7 +1381,7 @@ build_imt_slots (MonoClass *klass, MonoVTable *vt, MonoDomain *domain, gpointer*
 	MonoImtBuilderEntry **imt_builder = (MonoImtBuilderEntry **)calloc (MONO_IMT_SIZE, sizeof (MonoImtBuilderEntry*));
 	int method_count = 0;
 	gboolean record_method_count_for_max_collisions = FALSE;
-	gboolean has_generic_virtual = FALSE, has_variant_iface = FALSE;
+	gboolean has_generic_virtual = FALSE, has_variant_iface = FALSE, has_icastable = mono_vtable_is_icastable (vt);
 
 #if DEBUG_IMT
 	printf ("Building IMT for class %s.%s slot %d\n", klass->name_space, klass->name, slot_num);
@@ -1468,7 +1469,7 @@ build_imt_slots (MonoClass *klass, MonoVTable *vt, MonoDomain *domain, gpointer*
 				imt_builder [i] = entries;
 			}
 
-			if (has_generic_virtual || has_variant_iface) {
+			if (has_generic_virtual || has_variant_iface || has_icastable) {
 				/*
 				 * There might be collisions later when the the trampoline is expanded.
 				 */
@@ -2099,6 +2100,9 @@ mono_class_create_runtime_vtable (MonoDomain *domain, MonoClass *klass, MonoErro
 	}
 
 	mono_vtable_set_is_remote (vt, mono_class_is_contextbound (klass));
+
+	if (MONO_VTABLE_IMPLEMENTS_INTERFACE (vt, mono_defaults.icastable_class->interface_id))
+		vt->icastable = 1;
 
 	/*  class_vtable_array keeps an array of created vtables
 	 */
@@ -6505,6 +6509,48 @@ mono_object_isinst_mbyref (MonoObject *obj_raw, MonoClass *klass)
 	HANDLE_FUNCTION_RETURN_OBJ (result);
 }
 
+static gboolean
+icastable_isinst_mbyref (MonoObjectHandle obj, MonoClass *klass, MonoError *error)
+{
+	// ICastable only suport interfaces.
+	g_assert (mono_class_is_interface (klass));
+
+	MonoObject *obj_instance = MONO_HANDLE_RAW (obj);
+	MonoDomain *domain = obj_instance->vtable->domain;
+
+	// Get interface type handle passed to IsInstanceOfInterface.
+	MonoReflectionTypeHandle ref_type = mono_type_get_object_handle (domain, &klass->byval_arg, error);
+	if (!is_ok (error))
+		return FALSE;
+
+	MonoException *cast_exception = NULL;
+	gpointer args[3];
+	args[0] = obj_instance;
+	args[1] = MONO_HANDLE_RAW (ref_type);
+	args[2] = &cast_exception;
+
+	if (!icastable_helper_isinstanceofinterface) {
+		mono_loader_lock ();
+		if (!icastable_helper_isinstanceofinterface) {
+			icastable_helper_isinstanceofinterface = mono_class_get_method_from_name (mono_defaults.icastablehelpers_class, "IsInstanceOfInterface", 3);
+		}
+		mono_loader_unlock ();
+	}
+
+	g_assert (icastable_helper_isinstanceofinterface);
+
+	// Call ICastable::IsInstanceOfInterface to check for support of requested interface type.
+	MonoObject *isinst_res_obj = mono_runtime_invoke_checked (icastable_helper_isinstanceofinterface, NULL, args, error);
+	gboolean isinst_of = (isinst_res_obj != NULL) ? *((MonoBoolean*)mono_object_unbox (isinst_res_obj)) : FALSE;
+	if (!is_ok (error) || !isinst_of) {
+		if (cast_exception != NULL)
+			mono_error_set_exception_instance (error, cast_exception);
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
 MonoObjectHandle
 mono_object_handle_isinst_mbyref (MonoObjectHandle obj, MonoClass *klass, MonoError *error)
 {
@@ -6531,8 +6577,15 @@ mono_object_handle_isinst_mbyref (MonoObjectHandle obj, MonoClass *klass, MonoEr
 			}
 		}
 
+		if (mono_vtable_is_icastable (vt)) {
+			if (icastable_isinst_mbyref (obj, klass, error)) {
+				MONO_HANDLE_ASSIGN (result, obj);
+				goto leave;
+			}
+		}
+
 		/*If the above check fails we are in the slow path of possibly raising an exception. So it's ok to it this way.*/
-		else if (mono_class_has_variant_generic_params (klass) && mono_class_is_assignable_from (klass, mono_handle_class (obj))) {
+		if (mono_class_has_variant_generic_params (klass) && mono_class_is_assignable_from (klass, mono_handle_class (obj))) {
 			MONO_HANDLE_ASSIGN (result, obj);
 			goto leave;
 		}
