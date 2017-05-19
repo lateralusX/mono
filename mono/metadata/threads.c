@@ -45,6 +45,7 @@
 #include <mono/utils/mono-error-internals.h>
 #include <mono/utils/os-event.h>
 #include <mono/utils/mono-threads-debug.h>
+#include <mono/utils/mono-lazy-init.h>
 #include <mono/metadata/w32handle.h>
 #include <mono/metadata/w32event.h>
 #include <mono/metadata/w32mutex.h>
@@ -200,6 +201,25 @@ static gint32 managed_thread_id_counter = 0;
 
 /* Class lazy loading functions */
 static GENERATE_GET_CLASS_WITH_CACHE (appdomain_unloaded_exception, "System", "AppDomainUnloadedException")
+
+#if defined(HOST_WIN32)
+typedef enum RO_INIT_TYPE
+{
+#if HAVE_CLASSIC_WINAPI_SUPPORT
+	// Single-threaded application
+	RO_INIT_SINGLETHREADED = 0,
+#endif
+	// COM calls objects on any thread.
+	RO_INIT_MULTITHREADED = 1
+} RO_INIT_TYPE;
+
+typedef HRESULT (WINAPI *RoInitializePtr) (RO_INIT_TYPE initType);
+typedef VOID (WINAPI *RoUninitializePtr) (VOID);
+
+static mono_lazy_init_t g_winrt_lazy_init = MONO_LAZY_INIT_STATUS_NOT_INITIALIZED;
+static RoInitializePtr g_roinitialize;
+static RoUninitializePtr g_rouninitialize;
+#endif
 
 static void
 mono_threads_lock (void)
@@ -4616,11 +4636,31 @@ gint32* mono_thread_interruption_request_flag ()
 	return &thread_interruption_requested;
 }
 
+#if defined(HOST_WIN32)
+static void
+init_winrt_api ()
+{
+	// We need module loaded, so keep handle around.
+	HMODULE comdll_module = NULL;
+
+	g_assert (g_roinitialize == NULL);
+	g_assert (g_rouninitialize == NULL);
+
+	// Load functions available on Win8/Win2012Server or later. If running on earlier
+	// systems the below GetProceAddress will fail, this is expected behavior.
+	if (GetModuleHandleEx (0, TEXT("combase.dll"), &comdll_module) == TRUE) {
+		g_roinitialize = (RoInitializePtr)GetProcAddress (comdll_module, "RoInitialize");
+		g_rouninitialize = (RoUninitializePtr)GetProcAddress (comdll_module, "RoUninitialize");
+	}
+}
+#endif
+
 void 
 mono_thread_init_apartment_state (void)
 {
 #ifdef HOST_WIN32
 	MonoInternalThread* thread = mono_thread_internal_current ();
+	MonoThreadApartmentState req_apartment_state = thread->apartment_state;
 
 	/* Positive return value indicates success, either
 	 * S_OK if this is first CoInitialize call, or
@@ -4628,10 +4668,22 @@ mono_thread_init_apartment_state (void)
 	 * threading model. A negative value indicates failure,
 	 * probably due to trying to change the threading model.
 	 */
-	if (CoInitializeEx(NULL, (thread->apartment_state == ThreadApartmentState_STA) 
+	if (CoInitializeEx(NULL, (req_apartment_state == ThreadApartmentState_STA)
 			? COINIT_APARTMENTTHREADED 
 			: COINIT_MULTITHREADED) < 0) {
 		thread->apartment_state = ThreadApartmentState_Unknown;
+	}
+
+	mono_lazy_initialize (&g_winrt_lazy_init, init_winrt_api);
+	if (g_roinitialize) {
+		RO_INIT_TYPE init_type = RO_INIT_MULTITHREADED;
+#ifdef HAVE_CLASSIC_WINAPI_SUPPORT
+		init_type = (req_apartment_state == ThreadApartmentState_STA) ? RO_INIT_SINGLETHREADED : init_type;
+#endif
+		if (g_roinitialize (init_type) < 0) {
+			// RoInitialize needs to follow the threading model setup and used by CoInitialize.
+			g_error ("%s: RoInitialize failed, missmatched threading model.", __func__);
+		}
 	}
 #endif
 }
@@ -4644,6 +4696,9 @@ mono_thread_cleanup_apartment_state (void)
 
 	if (thread && thread->apartment_state != ThreadApartmentState_Unknown) {
 		CoUninitialize ();
+		mono_lazy_initialize (&g_winrt_lazy_init, init_winrt_api);
+		if (g_rouninitialize)
+			g_rouninitialize ();
 	}
 #endif
 }
