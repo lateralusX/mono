@@ -33,6 +33,10 @@
 #include <mono/utils/atomic.h>
 #include <mono/utils/w32api.h>
 
+#if defined(HOST_WIN32) && defined(HAVE_CLASSIC_WINAPI_SUPPORT)
+#include <combaseapi.h>
+#endif
+
 /*
  * Pull the list of opcodes
  */
@@ -1323,6 +1327,72 @@ ves_icall_System_Threading_Monitor_Monitor_pulse_all (MonoObject *obj)
 	}
 }
 
+#ifdef HOST_WIN32
+#ifdef HAVE_CLASSIC_WINAPI_SUPPORT
+static MonoW32HandleWaitRet
+mono_icall_monitor_wait (HANDLE wait_handle, guint32 ms, gboolean alertable)
+{
+	MonoW32HandleWaitRet result = MONO_W32HANDLE_WAIT_RET_FAILED;
+	MonoInternalThread *thread = mono_thread_internal_current ();
+
+	// We can't risk blocking the STA message pump for cross STA COM/WinRT interop.
+	if (thread && thread->apartment_state == ThreadApartmentState_STA) {
+		DWORD flags = COWAIT_DISPATCH_CALLS | COWAIT_DISPATCH_WINDOW_MESSAGES;
+		HANDLE wait_handles[] = { wait_handle };
+		DWORD index = 0;
+
+		// Instability when doing aleratble wait, https://msdn.microsoft.com/en-us/library/windows/desktop/ms680732(v=vs.85).aspx.
+		// Workaround is to reset last error to success before doing call to CoWaitForMultipleHandles.
+		if (alertable)  {
+			flags |= COWAIT_ALERTABLE;
+			SetLastError(ERROR_SUCCESS);
+		}
+
+		HRESULT hr;
+
+		MONO_ENTER_GC_SAFE;
+		hr = CoWaitForMultipleHandles (flags, ms, G_N_ELEMENTS (wait_handles), wait_handles, &index);
+		MONO_EXIT_GC_SAFE;
+
+		if (hr == S_OK) {
+			result = mono_w32handle_convert_wait_ret (index, 1);
+		} else {
+			result = mono_w32handle_convert_wait_ret (result == RPC_S_CALLPENDING ? WAIT_TIMEOUT : WAIT_FAILED, 1);
+		}
+	} else {
+		if (thread)
+			g_assert (thread->apartment_state == ThreadApartmentState_MTA);
+
+		MONO_ENTER_GC_SAFE;
+		result = mono_w32handle_convert_wait_ret (WaitForSingleObjectEx (wait_handle, ms, alertable), 1);
+		MONO_EXIT_GC_SAFE;
+	}
+
+	return result;
+}
+#else
+static inline MonoW32HandleWaitRet
+mono_icall_monitor_wait (HANDLE wait_handle, guint32 ms, gboolean alertable)
+{
+	MONO_ENTER_GC_SAFE;
+	MonoW32HandleWaitRet result = mono_w32handle_convert_wait_ret (WaitForSingleObjectEx (wait_handle, ms, alertable), 1);
+	MONO_EXIT_GC_SAFE;
+
+	return result;
+}
+#endif
+#else
+static inline MonoW32HandleWaitRet
+mono_icall_monitor_wait (HANDLE wait_handle, guint32 ms, gboolean alertable)
+{
+	MONO_ENTER_GC_SAFE;
+	MonoW32HandleWaitRet result = mono_w32handle_wait_one (event, ms, alertable);
+	MONO_EXIT_GC_SAFE;
+
+	return result;
+}
+#endif
+
 MonoBoolean
 ves_icall_System_Threading_Monitor_Monitor_wait (MonoObject *obj, guint32 ms)
 {
@@ -1385,13 +1455,7 @@ ves_icall_System_Threading_Monitor_Monitor_wait (MonoObject *obj, guint32 ms)
 	 * is private to this thread.  Therefore even if the event was
 	 * signalled before we wait, we still succeed.
 	 */
-	MONO_ENTER_GC_SAFE;
-#ifdef HOST_WIN32
-	ret = mono_w32handle_convert_wait_ret (WaitForSingleObjectEx (event, ms, TRUE), 1);
-#else
-	ret = mono_w32handle_wait_one (event, ms, TRUE);
-#endif /* HOST_WIN32 */
-	MONO_EXIT_GC_SAFE;
+	ret = mono_icall_monitor_wait (event, ms, TRUE);
 
 	/* Reset the thread state fairly early, so we don't have to worry
 	 * about the monitor error checking
@@ -1414,13 +1478,7 @@ ves_icall_System_Threading_Monitor_Monitor_wait (MonoObject *obj, guint32 ms)
 		/* Poll the event again, just in case it was signalled
 		 * while we were trying to regain the monitor lock
 		 */
-		MONO_ENTER_GC_SAFE;
-#ifdef HOST_WIN32
-		ret = mono_w32handle_convert_wait_ret (WaitForSingleObjectEx (event, 0, FALSE), 1);
-#else
-		ret = mono_w32handle_wait_one (event, 0, FALSE);
-#endif /* HOST_WIN32 */
-		MONO_EXIT_GC_SAFE;
+		ret = mono_icall_monitor_wait (event, 0, FALSE);
 	}
 
 	/* Pulse will have popped our event from the queue if it signalled
