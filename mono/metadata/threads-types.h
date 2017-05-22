@@ -248,6 +248,9 @@ void ves_icall_System_Threading_Thread_GetStackTraces (MonoArray **out_threads, 
 MONO_API gpointer
 mono_threads_attach_coop (MonoDomain *domain, gpointer *dummy);
 
+gpointer
+mono_threads_attach_coop_ex (MonoDomain *domain, gpointer *dummy);
+
 MONO_API void
 mono_threads_detach_coop (gpointer cookie, gpointer *dummy);
 

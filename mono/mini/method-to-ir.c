@@ -155,7 +155,7 @@ mono_emit_calli (MonoCompile *cfg, MonoMethodSignature *sig, MonoInst **args, Mo
 static MonoMethodSignature *helper_sig_domain_get;
 static MonoMethodSignature *helper_sig_rgctx_lazy_fetch_trampoline;
 static MonoMethodSignature *helper_sig_llvmonly_imt_trampoline;
-static MonoMethodSignature *helper_sig_jit_thread_attach;
+static MonoMethodSignature *helper_sig_jit_thread_attach_ex;
 static MonoMethodSignature *helper_sig_get_tls_tramp;
 static MonoMethodSignature *helper_sig_set_tls_tramp;
 
@@ -368,7 +368,7 @@ mono_create_helper_signatures (void)
 	helper_sig_domain_get = mono_create_icall_signature ("ptr");
 	helper_sig_rgctx_lazy_fetch_trampoline = mono_create_icall_signature ("ptr ptr");
 	helper_sig_llvmonly_imt_trampoline = mono_create_icall_signature ("ptr ptr ptr");
-	helper_sig_jit_thread_attach = mono_create_icall_signature ("ptr ptr");
+	helper_sig_jit_thread_attach_ex = mono_create_icall_signature ("ptr ptr bool");
 	helper_sig_get_tls_tramp = mono_create_icall_signature ("ptr");
 	helper_sig_set_tls_tramp = mono_create_icall_signature ("void ptr");
 }
@@ -7473,6 +7473,67 @@ emit_setret (MonoCompile *cfg, MonoInst *val)
 	}
 }
 
+static void
+emit_jit_attach_thread (MonoCompile *cfg, MonoInst *ins, gboolean native_callable)
+{
+	MonoInst *args [16], *domain_ins;
+	MonoInst *ad_ins, *jit_tls_ins;
+	MonoBasicBlock *next_bb = NULL, *call_bb = NULL;
+
+	g_assert (!mono_threads_is_coop_enabled ());
+
+	cfg->orig_domain_var = mono_compile_create_var (cfg, &mono_defaults.int_class->byval_arg, OP_LOCAL);
+
+	EMIT_NEW_PCONST (cfg, ins, NULL);
+	MONO_EMIT_NEW_UNALU (cfg, OP_MOVE, cfg->orig_domain_var->dreg, ins->dreg);
+
+	ad_ins = mono_create_tls_get (cfg, TLS_KEY_DOMAIN);
+	jit_tls_ins = mono_create_tls_get (cfg, TLS_KEY_JIT_TLS);
+
+	if (ad_ins && jit_tls_ins) {
+		NEW_BBLOCK (cfg, next_bb);
+		NEW_BBLOCK (cfg, call_bb);
+
+		if (cfg->compile_aot) {
+			/* AOT code is only used in the root domain */
+			EMIT_NEW_PCONST (cfg, domain_ins, NULL);
+		} else {
+			EMIT_NEW_PCONST (cfg, domain_ins, cfg->domain);
+		}
+		MONO_EMIT_NEW_BIALU (cfg, OP_COMPARE, -1, ad_ins->dreg, domain_ins->dreg);
+		MONO_EMIT_NEW_BRANCH_BLOCK (cfg, OP_PBNE_UN, call_bb);
+
+		MONO_EMIT_NEW_BIALU_IMM (cfg, OP_COMPARE_IMM, -1, jit_tls_ins->dreg, 0);
+		MONO_EMIT_NEW_BRANCH_BLOCK (cfg, OP_PBEQ, call_bb);
+
+		MONO_EMIT_NEW_BRANCH_BLOCK (cfg, OP_BR, next_bb);
+		MONO_START_BB (cfg, call_bb);
+	}
+
+	/* AOT code is only used in the root domain */
+	EMIT_NEW_PCONST (cfg, args [0], cfg->compile_aot ? NULL : cfg->domain);
+	EMIT_NEW_I8CONST (cfg, args[1], native_callable);
+	if (cfg->compile_aot) {
+		MonoInst *addr;
+
+		/*
+			* This is called on unattached threads, so it cannot go through the trampoline
+			* infrastructure. Use an indirect call through a got slot initialized at load time
+			* instead.
+			*/
+		EMIT_NEW_AOTCONST (cfg, addr, MONO_PATCH_INFO_JIT_THREAD_ATTACH_EX, NULL);
+		ins = mono_emit_calli (cfg, helper_sig_jit_thread_attach_ex, args, addr, NULL, NULL);
+	} else {
+		ins = mono_emit_jit_icall (cfg, mono_jit_thread_attach_ex, args);
+	}
+	MONO_EMIT_NEW_UNALU (cfg, OP_MOVE, cfg->orig_domain_var->dreg, ins->dreg);
+
+	if (next_bb)
+		MONO_START_BB (cfg, next_bb);
+
+	return;
+}
+
 /*
  * mono_method_to_ir:
  *
@@ -12142,60 +12203,7 @@ mono_method_to_ir (MonoCompile *cfg, MonoMethod *method, MonoBasicBlock *start_b
 				break;
 			}
 			case CEE_MONO_JIT_ATTACH: {
-				MonoInst *args [16], *domain_ins;
-				MonoInst *ad_ins, *jit_tls_ins;
-				MonoBasicBlock *next_bb = NULL, *call_bb = NULL;
-
-				g_assert (!mono_threads_is_coop_enabled ());
-
-				cfg->orig_domain_var = mono_compile_create_var (cfg, &mono_defaults.int_class->byval_arg, OP_LOCAL);
-
-				EMIT_NEW_PCONST (cfg, ins, NULL);
-				MONO_EMIT_NEW_UNALU (cfg, OP_MOVE, cfg->orig_domain_var->dreg, ins->dreg);
-
-				ad_ins = mono_create_tls_get (cfg, TLS_KEY_DOMAIN);
-				jit_tls_ins = mono_create_tls_get (cfg, TLS_KEY_JIT_TLS);
-
-				if (ad_ins && jit_tls_ins) {
-					NEW_BBLOCK (cfg, next_bb);
-					NEW_BBLOCK (cfg, call_bb);
-
-					if (cfg->compile_aot) {
-						/* AOT code is only used in the root domain */
-						EMIT_NEW_PCONST (cfg, domain_ins, NULL);
-					} else {
-						EMIT_NEW_PCONST (cfg, domain_ins, cfg->domain);
-					}
-					MONO_EMIT_NEW_BIALU (cfg, OP_COMPARE, -1, ad_ins->dreg, domain_ins->dreg);
-					MONO_EMIT_NEW_BRANCH_BLOCK (cfg, OP_PBNE_UN, call_bb);
-
-					MONO_EMIT_NEW_BIALU_IMM (cfg, OP_COMPARE_IMM, -1, jit_tls_ins->dreg, 0);
-					MONO_EMIT_NEW_BRANCH_BLOCK (cfg, OP_PBEQ, call_bb);
-
-					MONO_EMIT_NEW_BRANCH_BLOCK (cfg, OP_BR, next_bb);
-					MONO_START_BB (cfg, call_bb);
-				}
-
-				/* AOT code is only used in the root domain */
-				EMIT_NEW_PCONST (cfg, args [0], cfg->compile_aot ? NULL : cfg->domain);
-				if (cfg->compile_aot) {
-					MonoInst *addr;
-
-					/*
-					 * This is called on unattached threads, so it cannot go through the trampoline
-					 * infrastructure. Use an indirect call through a got slot initialized at load time
-					 * instead.
-					 */
-					EMIT_NEW_AOTCONST (cfg, addr, MONO_PATCH_INFO_JIT_THREAD_ATTACH, NULL);
-					ins = mono_emit_calli (cfg, helper_sig_jit_thread_attach, args, addr, NULL, NULL);
-				} else {
-					ins = mono_emit_jit_icall (cfg, mono_jit_thread_attach, args);
-				}
-				MONO_EMIT_NEW_UNALU (cfg, OP_MOVE, cfg->orig_domain_var->dreg, ins->dreg);
-
-				if (next_bb)
-					MONO_START_BB (cfg, next_bb);
-
+				emit_jit_attach_thread (cfg, ins, FALSE);
 				ip += 2;
 				break;
 			}
@@ -12386,6 +12394,10 @@ mono_method_to_ir (MonoCompile *cfg, MonoMethod *method, MonoBasicBlock *start_b
 
 				ip += 2;
 				*sp++ = ins;
+				break;
+			case CEE_MONO_JIT_ATTACH_EX:
+				emit_jit_attach_thread (cfg, ins, TRUE);
+				ip += 2;
 				break;
 			default:
 				g_error ("opcode 0x%02x 0x%02x not handled", MONO_CUSTOM_PREFIX, ip [1]);

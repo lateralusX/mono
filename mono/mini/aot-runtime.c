@@ -1215,7 +1215,10 @@ decode_method_ref_with_target (MonoAotModule *module, MethodRef *ref, MonoMethod
 			klass = decode_klass_ref (module, p, &p, error);
 			if (!klass)
 				return FALSE;
-			ref->method = mono_marshal_get_managed_wrapper (m, klass, 0, error);
+			if (!mono_is_native_callable_method (m))
+				ref->method = mono_marshal_get_managed_wrapper (m, klass, 0, error);
+			else
+				ref->method = mono_marshal_get_managed_wrapper_ex (m, m, klass, 0, TRUE, error);
 			if (!mono_error_ok (error))
 				return FALSE;
 			break;
@@ -3730,6 +3733,7 @@ decode_patch (MonoAotModule *aot_module, MonoMemPool *mp, MonoJumpInfo *ji, guin
 	}
 	case MONO_PATCH_INFO_GC_SAFE_POINT_FLAG:
 	case MONO_PATCH_INFO_JIT_THREAD_ATTACH:
+	case MONO_PATCH_INFO_JIT_THREAD_ATTACH_EX:
 		break;
 	case MONO_PATCH_INFO_GET_TLS_TRAMP:
 	case MONO_PATCH_INFO_SET_TLS_TRAMP:

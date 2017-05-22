@@ -49,11 +49,22 @@ mono_ldftn (MonoMethod *method)
 		return addr;
 	}
 
-	addr = mono_create_jump_trampoline (mono_domain_get (), method, FALSE, &error);
-	if (!mono_error_ok (&error)) {
-		mono_error_set_pending_exception (&error);
-		return NULL;
+	MonoMethod *wrapper;
+	if (mono_is_native_callable_method (method)) {
+		wrapper = mono_marshal_get_managed_wrapper_ex (method, method, method->klass, 0, TRUE, &error);
+		addr = mono_compile_method_checked (wrapper, &error);
+		if (!mono_error_ok (&error)) {
+			mono_error_set_pending_exception (&error);
+			return NULL;
+		}
+	} else {
+		addr = mono_create_jump_trampoline (mono_domain_get (), method, FALSE, &error);
+		if (!mono_error_ok (&error)) {
+			mono_error_set_pending_exception (&error);
+			return NULL;
+		}
 	}
+
 	return mono_create_ftnptr (mono_domain_get (), addr);
 }
 

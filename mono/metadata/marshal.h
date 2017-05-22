@@ -336,8 +336,14 @@ mono_marshal_get_runtime_invoke_for_sig (MonoMethodSignature *sig);
 MonoMethodSignature*
 mono_marshal_get_string_ctor_signature (MonoMethod *method);
 
+gboolean
+mono_is_native_callable_method (MonoMethod *method);
+
 MonoMethod *
-mono_marshal_get_managed_wrapper (MonoMethod *method, MonoClass *delegate_klass, uint32_t this_loc, MonoError *exernal_error);
+mono_marshal_get_managed_wrapper (MonoMethod *method, MonoClass *delegate_klass, uint32_t this_loc, MonoError *external_error);
+
+MonoMethod *
+mono_marshal_get_managed_wrapper_ex (MonoMethod *method, MonoMethod *delegate_method, MonoClass *delegate_klass, uint32_t this_loc, gboolean native_callable_method, MonoError *external_error);
 
 gpointer
 mono_marshal_get_vtfixup_ftnptr (MonoImage *image, guint32 token, guint16 type);
@@ -587,6 +593,9 @@ mono_marshal_emit_native_wrapper (MonoImage *image, MonoMethodBuilder *mb, MonoM
 
 void
 mono_marshal_emit_managed_wrapper (MonoMethodBuilder *mb, MonoMethodSignature *invoke_sig, MonoMarshalSpec **mspecs, EmitMarshalContext* m, MonoMethod *method, uint32_t target_handle);
+
+void
+mono_marshal_emit_managed_wrapper_ex (MonoMethodBuilder *mb, MonoMethodSignature *invoke_sig, MonoMarshalSpec **mspecs, EmitMarshalContext* m, MonoMethod *method, uint32_t target_handle, gboolean native_callable_method);
 
 GHashTable*
 mono_marshal_get_cache (GHashTable **var, GHashFunc hash_func, GCompareFunc equal_func);

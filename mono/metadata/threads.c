@@ -4638,7 +4638,7 @@ gint32* mono_thread_interruption_request_flag ()
 
 #if defined(HOST_WIN32)
 static void
-init_winrt_api ()
+init_winrt_api (void)
 {
 	// We need module loaded, so keep handle around.
 	HMODULE comdll_module = NULL;
@@ -5153,19 +5153,8 @@ ves_icall_System_Threading_Thread_GetStackTraces (MonoArray **out_threads, MonoA
 	mono_error_set_pending_exception (&error);
 }
 
-/*
- * mono_threads_attach_coop: called by native->managed wrappers
- *
- * In non-coop mode:
- *  - @dummy: is NULL
- *  - @return: the original domain which needs to be restored, or NULL.
- *
- * In coop mode:
- *  - @dummy: contains the original domain
- *  - @return: a cookie containing current MonoThreadInfo*.
- */
-gpointer
-mono_threads_attach_coop (MonoDomain *domain, gpointer *dummy)
+static gpointer
+threads_attach_coop (MonoDomain *domain, gpointer *dummy, gboolean native_callable)
 {
 	MonoDomain *orig;
 	gboolean fresh_thread = FALSE;
@@ -5186,11 +5175,19 @@ mono_threads_attach_coop (MonoDomain *domain, gpointer *dummy)
 		fresh_thread = !info || !mono_thread_info_is_live (info);
 	}
 
-	if (!mono_thread_internal_current ()) {
+	MonoInternalThread *internal_thread = mono_thread_internal_current ();
+	if (!internal_thread) {
 		mono_thread_attach_full (domain, FALSE);
 
 		// #678164
-		mono_thread_set_state (mono_thread_internal_current (), ThreadState_Background);
+		mono_thread_set_state (internal_thread, ThreadState_Background);
+
+		// If thread attach call has beem marked as native callable, the calling
+		// thread is most likely out of our control (like callback from unmanaged thread pool).
+		// Since the life time of this thread can't be controlled, the attached thread can't
+		// be managed by runtime.
+		if (native_callable)
+			internal_thread->flags |= MONO_THREAD_FLAG_DONT_MANAGE;
 	}
 
 	orig = mono_domain_get ();
@@ -5210,6 +5207,29 @@ mono_threads_attach_coop (MonoDomain *domain, gpointer *dummy)
 		/* thread state (BLOCKING|RUNNING) -> RUNNING */
 		return mono_threads_enter_gc_unsafe_region (dummy);
 	}
+}
+
+/*
+ * mono_threads_attach_coop: called by native->managed wrappers
+ *
+ * In non-coop mode:
+ *  - @dummy: is NULL
+ *  - @return: the original domain which needs to be restored, or NULL.
+ *
+ * In coop mode:
+ *  - @dummy: contains the original domain
+ *  - @return: a cookie containing current MonoThreadInfo*.
+ */
+gpointer
+mono_threads_attach_coop (MonoDomain *domain, gpointer *dummy)
+{
+	return threads_attach_coop (domain, dummy, FALSE);
+}
+
+gpointer
+mono_threads_attach_coop_ex (MonoDomain *domain, gpointer *dummy)
+{
+	return threads_attach_coop (domain, dummy, TRUE);
 }
 
 /*

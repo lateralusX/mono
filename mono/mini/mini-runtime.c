@@ -790,16 +790,8 @@ mono_set_lmf_addr (gpointer lmf_addr)
 		mono_thread_info_tls_set (info, TLS_KEY_LMF_ADDR, lmf_addr);
 }
 
-/*
- * mono_jit_thread_attach:
- *
- * Called by Xamarin.Mac and other products. Attach thread to runtime if
- * needed and switch to @domain.
- *
- * @return the original domain which needs to be restored, or NULL.
- */
-MonoDomain*
-mono_jit_thread_attach (MonoDomain *domain)
+static MonoDomain*
+jit_thread_attach_ex (MonoDomain *domain, MonoBoolean native_callable)
 {
 	MonoDomain *orig;
 	gboolean attached;
@@ -818,8 +810,17 @@ mono_jit_thread_attach (MonoDomain *domain)
 	if (!attached) {
 		mono_thread_attach (domain);
 
+		MonoInternalThread *internal_thread = mono_thread_internal_current ();
+
 		// #678164
-		mono_thread_set_state (mono_thread_internal_current (), ThreadState_Background);
+		mono_thread_set_state (internal_thread, ThreadState_Background);
+
+		// If thread attach call has beem marked as native callable, the calling
+		// thread is most likely out of our control (like callback from unmanaged thread pool).
+		// Since the life time of this thread can't be controlled, the attached thread can't
+		// be managed by runtime.
+		if (native_callable)
+			internal_thread->flags |= MONO_THREAD_FLAG_DONT_MANAGE;
 	}
 
 	orig = mono_domain_get ();
@@ -827,6 +828,26 @@ mono_jit_thread_attach (MonoDomain *domain)
 		mono_domain_set (domain, TRUE);
 
 	return orig != domain ? orig : NULL;
+}
+
+/*
+ * mono_jit_thread_attach:
+ *
+ * Called by Xamarin.Mac and other products. Attach thread to runtime if
+ * needed and switch to @domain.
+ *
+ * @return the original domain which needs to be restored, or NULL.
+ */
+MonoDomain*
+mono_jit_thread_attach (MonoDomain *domain)
+{
+	return jit_thread_attach_ex (domain, FALSE);
+}
+
+MonoDomain*
+mono_jit_thread_attach_ex (MonoDomain *domain, MonoBoolean native_callable)
+{
+	return jit_thread_attach_ex (domain, native_callable);
 }
 
 /*
@@ -1181,6 +1202,7 @@ mono_patch_info_hash (gconstpointer data)
 	case MONO_PATCH_INFO_GC_SAFE_POINT_FLAG:
 	case MONO_PATCH_INFO_AOT_MODULE:
 	case MONO_PATCH_INFO_JIT_THREAD_ATTACH:
+	case MONO_PATCH_INFO_JIT_THREAD_ATTACH_EX:
 		return (ji->type << 8);
 	case MONO_PATCH_INFO_CASTCLASS_CACHE:
 		return (ji->type << 8) | (ji->data.index);
@@ -1614,6 +1636,12 @@ mono_resolve_patch_target (MonoMethod *method, MonoDomain *domain, guint8 *code,
 		break;
 	case MONO_PATCH_INFO_JIT_THREAD_ATTACH: {
 		MonoJitICallInfo *mi = mono_find_jit_icall_by_name ("mono_jit_thread_attach");
+		g_assert (mi);
+		target = mi->func;
+		break;
+	}
+	case MONO_PATCH_INFO_JIT_THREAD_ATTACH_EX: {
+		MonoJitICallInfo *mi = mono_find_jit_icall_by_name ("mono_jit_thread_attach_ex");
 		g_assert (mi);
 		target = mi->func;
 		break;
@@ -3812,6 +3840,7 @@ register_icalls (void)
 	register_icall (mono_trace_leave_method, "mono_trace_leave_method", NULL, TRUE);
 	register_icall (mono_get_lmf_addr, "mono_get_lmf_addr", "ptr", TRUE);
 	register_icall (mono_jit_thread_attach, "mono_jit_thread_attach", "ptr ptr", TRUE);
+	register_icall (mono_jit_thread_attach_ex, "mono_jit_thread_attach_ex", "ptr ptr bool", TRUE);
 	register_icall (mono_jit_set_domain, "mono_jit_set_domain", "void ptr", TRUE);
 	register_icall (mono_domain_get, "mono_domain_get", "ptr", TRUE);
 

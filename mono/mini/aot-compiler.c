@@ -4238,6 +4238,8 @@ add_wrappers (MonoAotCompile *acfg)
 		guint32 token = MONO_TOKEN_METHOD_DEF | (i + 1);
 		MonoCustomAttrInfo *cattr;
 		int j;
+		gboolean pinvoke_callback = FALSE;
+		gboolean native_callable = FALSE;
 
 		method = mono_get_method_checked (acfg->image, token, NULL, NULL, &error);
 		report_loader_error (acfg, &error, "Failed to load method token 0x%x due to %s\n", i, mono_error_get_message (&error));
@@ -4255,10 +4257,17 @@ add_wrappers (MonoAotCompile *acfg)
 		}
 
 		if (cattr) {
-			for (j = 0; j < cattr->num_attrs; ++j)
-				if (cattr->attrs [j].ctor && !strcmp (cattr->attrs [j].ctor->klass->name, "MonoPInvokeCallbackAttribute"))
+			for (j = 0; j < cattr->num_attrs; ++j) {
+				if (cattr->attrs [j].ctor && !strcmp (cattr->attrs [j].ctor->klass->name, "MonoPInvokeCallbackAttribute")) {
+					pinvoke_callback = TRUE;
 					break;
-			if (j < cattr->num_attrs) {
+				} else if (cattr->attrs [j].ctor && !strcmp (cattr->attrs [j].ctor->klass->name, "NativeCallableAttribute")) {
+					native_callable = TRUE;
+					break;
+				}
+			}
+
+			if (pinvoke_callback) {
 				MonoCustomAttrEntry *e = &cattr->attrs [j];
 				MonoMethodSignature *sig = mono_method_signature (e->ctor);
 				const char *p = (const char*)e->data;
@@ -4341,6 +4350,10 @@ add_wrappers (MonoAotCompile *acfg)
 				add_method (acfg, wrapper);
 				if (export_name)
 					g_hash_table_insert (acfg->export_names, wrapper, export_name);
+			} else if (native_callable) {
+				MonoMethod *wrapper = mono_marshal_get_managed_wrapper_ex (method, method, method->klass, 0, TRUE, &error);
+				mono_error_assert_ok (&error);
+				add_method (acfg, wrapper);
 			}
 			g_free (cattr);
 		}
@@ -5896,6 +5909,7 @@ encode_patch (MonoAotCompile *acfg, MonoJumpInfo *patch_info, guint8 *buf, guint
 		break;
 	case MONO_PATCH_INFO_GC_SAFE_POINT_FLAG:
 	case MONO_PATCH_INFO_JIT_THREAD_ATTACH:
+	case MONO_PATCH_INFO_JIT_THREAD_ATTACH_EX:
 		break;
 	default:
 		g_warning ("unable to handle jump info %d", patch_info->type);
@@ -11351,6 +11365,11 @@ add_preinit_got_slots (MonoAotCompile *acfg)
 
 	ji = (MonoJumpInfo *)mono_mempool_alloc0 (acfg->mempool, sizeof (MonoJumpInfo));
 	ji->type = MONO_PATCH_INFO_JIT_THREAD_ATTACH;
+	get_got_offset (acfg, FALSE, ji);
+	get_got_offset (acfg, TRUE, ji);
+
+	ji = (MonoJumpInfo *)mono_mempool_alloc0 (acfg->mempool, sizeof (MonoJumpInfo));
+	ji->type = MONO_PATCH_INFO_JIT_THREAD_ATTACH_EX;
 	get_got_offset (acfg, FALSE, ji);
 	get_got_offset (acfg, TRUE, ji);
 

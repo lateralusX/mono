@@ -2431,6 +2431,7 @@ MonoLMF** mono_get_lmf_addr                 (void);
 void      mono_set_lmf                      (MonoLMF *lmf);
 MonoJitTlsData* mono_get_jit_tls            (void);
 MONO_API MonoDomain* mono_jit_thread_attach (MonoDomain *domain);
+MonoDomain* mono_jit_thread_attach_ex		(MonoDomain *domain, MonoBoolean native_callable);
 MONO_API void      mono_jit_set_domain      (MonoDomain *domain);
 MonoInst* mono_create_tls_get               (MonoCompile *cfg, MonoTlsKey key);
 GList    *mono_varlist_insert_sorted        (MonoCompile *cfg, GList *list, MonoMethodVar *mv, int sort_type);
