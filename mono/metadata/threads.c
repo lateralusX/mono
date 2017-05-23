@@ -205,7 +205,7 @@ static GENERATE_GET_CLASS_WITH_CACHE (appdomain_unloaded_exception, "System", "A
 #if defined(HOST_WIN32)
 typedef enum RO_INIT_TYPE
 {
-#if HAVE_CLASSIC_WINAPI_SUPPORT
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 	// Single-threaded application
 	RO_INIT_SINGLETHREADED = 0,
 #endif
@@ -4677,7 +4677,7 @@ mono_thread_init_apartment_state (void)
 	mono_lazy_initialize (&g_winrt_lazy_init, init_winrt_api);
 	if (g_roinitialize) {
 		RO_INIT_TYPE init_type = RO_INIT_MULTITHREADED;
-#ifdef HAVE_CLASSIC_WINAPI_SUPPORT
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 		init_type = (req_apartment_state == ThreadApartmentState_STA) ? RO_INIT_SINGLETHREADED : init_type;
 #endif
 		if (g_roinitialize (init_type) < 0) {

@@ -1328,7 +1328,7 @@ ves_icall_System_Threading_Monitor_Monitor_pulse_all (MonoObject *obj)
 }
 
 #ifdef HOST_WIN32
-#ifdef HAVE_CLASSIC_WINAPI_SUPPORT
+#if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
 static MonoW32HandleWaitRet
 mono_icall_monitor_wait (HANDLE wait_handle, guint32 ms, gboolean alertable)
 {
@@ -1360,9 +1360,6 @@ mono_icall_monitor_wait (HANDLE wait_handle, guint32 ms, gboolean alertable)
 			result = mono_w32handle_convert_wait_ret (result == RPC_S_CALLPENDING ? WAIT_TIMEOUT : WAIT_FAILED, 1);
 		}
 	} else {
-		if (thread)
-			g_assert (thread->apartment_state == ThreadApartmentState_MTA);
-
 		MONO_ENTER_GC_SAFE;
 		result = mono_w32handle_convert_wait_ret (WaitForSingleObjectEx (wait_handle, ms, alertable), 1);
 		MONO_EXIT_GC_SAFE;
@@ -1374,8 +1371,9 @@ mono_icall_monitor_wait (HANDLE wait_handle, guint32 ms, gboolean alertable)
 static inline MonoW32HandleWaitRet
 mono_icall_monitor_wait (HANDLE wait_handle, guint32 ms, gboolean alertable)
 {
+	MonoW32HandleWaitRet result = MONO_W32HANDLE_WAIT_RET_FAILED;
 	MONO_ENTER_GC_SAFE;
-	MonoW32HandleWaitRet result = mono_w32handle_convert_wait_ret (WaitForSingleObjectEx (wait_handle, ms, alertable), 1);
+	result = mono_w32handle_convert_wait_ret (WaitForSingleObjectEx (wait_handle, ms, alertable), 1);
 	MONO_EXIT_GC_SAFE;
 
 	return result;
