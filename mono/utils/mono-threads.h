@@ -231,7 +231,7 @@ typedef struct {
 	 */
 	gint32 profiler_signal_ack;
 
-	gint32 thread_pending_native_join;
+	gint32 thread_joinable_state;
 
 #ifdef USE_WINDOWS_BACKEND
 	gint32 thread_wait_info;

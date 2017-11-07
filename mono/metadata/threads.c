@@ -159,6 +159,18 @@ static MonoGHashTable *threads_starting_up = NULL;
 static GHashTable *joinable_threads;
 static gint32 joinable_thread_count;
 
+enum ThreadJoinableState {
+	THREAD_JOINABLE_STATE_NONE = 0,
+	THREAD_JOINABLE_STATE_PENDING = 1 << 0,
+	THREAD_JOINABLE_STATE_ADDED = 1 << 1
+};
+
+static gint32 pending_joinable_runtime_thread_count;
+static mono_cond_t zero_pending_joinable_runtime_thread_event;
+
+static void threads_add_pending_joinable_runtime_thread (gpointer thread_info);
+static gboolean threads_wait_pending_joinable_runtime_threads (uint32_t timeout);
+
 #define SET_CURRENT_OBJECT(x) mono_tls_set_thread (x)
 #define GET_CURRENT_OBJECT() (MonoInternalThread*) mono_tls_get_thread ()
 
@@ -749,6 +761,17 @@ mono_thread_detach_internal (MonoInternalThread *thread)
 
 	THREAD_DEBUG (g_message ("%s: mono_thread_detach for %p (%"G_GSIZE_FORMAT")", __func__, thread, (gsize)thread->tid));
 
+	/*
+	* Prevent race condition between thread shutdown and runtime shutdown.
+	* Inclduing all runtime threads in the pending joinable count will make
+	* sure shutdown will wait for it to get onto the joinable thread list before
+	* critical resources have been cleanup (like GC memory). Threads getting onto
+	* the joinable thread list should just about to exit and not blocking a potential
+	* join call. Owner of threads attached to the runtime but not identified as runtime
+	* threads needs to make sure thread detach calls won't race with runtime shutdown.
+	*/
+	threads_add_pending_joinable_runtime_thread (thread->thread_info);
+
 #ifndef HOST_WIN32
 	mono_w32mutex_abandon ();
 #endif
@@ -760,17 +783,6 @@ mono_thread_detach_internal (MonoInternalThread *thread)
 
 	thread->abort_exc = NULL;
 	thread->current_appcontext = NULL;
-
-	/*
-	* Prevent race condition between execution of this method and runtime shutdown.
-	* Adding runtime thread to the joinable threads list will make sure runtime shutdown
-	* won't complete until added runtime thread have exited. Owner of threads attached to the
-	* runtime but not identified as runtime threads needs to make sure thread detach calls won't
-	* race with runtime shutdown.
-	*/
-#ifdef HOST_WIN32
-	mono_threads_add_joinable_runtime_thread (thread->thread_info);
-#endif
 
 	/*
 	 * thread->synch_cs can be NULL if this was called after
@@ -2975,6 +2987,8 @@ void mono_thread_init (MonoThreadStartCB start_cb,
 	
 	mono_os_event_init (&background_change_event, FALSE);
 	
+	mono_os_cond_init (&zero_pending_joinable_runtime_thread_event);
+
 	mono_init_static_data_info (&thread_static_info);
 	mono_init_static_data_info (&context_static_info);
 
@@ -3066,6 +3080,13 @@ mono_thread_callbacks_init (void)
 void
 mono_thread_cleanup (void)
 {
+	/* Wait for pending runtime threads to park on joinable threads list */
+	/* NOTE, waiting on this should be extremely rare and will only happen */
+	/* under certain specific conditions. */
+	gboolean wait_result = threads_wait_pending_joinable_runtime_threads (2000);
+	if (!wait_result)
+		g_warning ("Waiting on runtime threads to park on joinable thread list timed out.");
+
 	mono_threads_join_threads ();
 
 #if !defined(RUN_IN_SUBTHREAD) && !defined(HOST_WIN32)
@@ -3087,6 +3108,7 @@ mono_thread_cleanup (void)
 	mono_os_mutex_destroy (&interlocked_mutex);
 	mono_os_mutex_destroy (&delayed_free_table_mutex);
 	mono_os_mutex_destroy (&small_id_mutex);
+	mono_os_cond_destroy (&zero_pending_joinable_runtime_thread_event);
 	mono_os_event_destroy (&background_change_event);
 #endif
 }
@@ -3311,6 +3333,7 @@ mono_thread_manage (void)
 		mono_threads_unlock ();
 		return;
 	}
+
 	mono_threads_unlock ();
 	
 	do {
@@ -5065,6 +5088,45 @@ threads_add_joinable_thread_nolock (gpointer tid)
 }
 #endif
 
+static void
+threads_add_pending_joinable_runtime_thread (gpointer thread_info)
+{
+	g_assert (thread_info);
+	MonoThreadInfo *mono_thread_info = (MonoThreadInfo*)thread_info;
+
+	if (mono_thread_info->runtime_thread) {
+		gint32 old_joinable_state = mono_atomic_load_i32 (&mono_thread_info->thread_joinable_state);
+		if (old_joinable_state == THREAD_JOINABLE_STATE_NONE) {
+			if (mono_atomic_cas_i32 (&mono_thread_info->thread_joinable_state, THREAD_JOINABLE_STATE_PENDING, THREAD_JOINABLE_STATE_NONE) == THREAD_JOINABLE_STATE_NONE) {
+				gint32 result = mono_atomic_inc_i32 (&pending_joinable_runtime_thread_count);
+				g_assert (result > 0);
+			}
+		}
+	}
+}
+
+static gboolean
+threads_wait_pending_joinable_runtime_threads (uint32_t timeout)
+{
+	gboolean wait_result = TRUE;
+	if (mono_atomic_load_i32 (&pending_joinable_runtime_thread_count) > 0) {
+		joinable_threads_lock ();
+		if (timeout == MONO_INFINITE_WAIT) {
+			mono_os_cond_wait (&zero_pending_joinable_runtime_thread_event, &joinable_threads_mutex);
+		} else {
+			gint64 start = mono_msec_ticks ();
+			gint64 elapsed = 0;
+			while (mono_atomic_load_i32 (&pending_joinable_runtime_thread_count) > 0 && elapsed < timeout) {
+				wait_result = (mono_os_cond_timedwait (&zero_pending_joinable_runtime_thread_event, &joinable_threads_mutex, timeout - (uint32_t)elapsed) == 0);
+				elapsed = mono_msec_ticks () - start;
+			}
+		}
+		joinable_threads_unlock ();
+	}
+
+	return wait_result;
+}
+
 void
 mono_threads_add_joinable_runtime_thread (gpointer thread_info)
 {
@@ -5072,8 +5134,21 @@ mono_threads_add_joinable_runtime_thread (gpointer thread_info)
 	MonoThreadInfo *mono_thread_info = (MonoThreadInfo*)thread_info;
 
 	if (mono_thread_info->runtime_thread) {
-		if (mono_atomic_cas_i32 (&mono_thread_info->thread_pending_native_join, TRUE, FALSE) == FALSE)
-			mono_threads_add_joinable_thread ((gpointer)(MONO_UINT_TO_NATIVE_THREAD_ID (mono_thread_info_get_tid (mono_thread_info))));
+		gint32 old_joinable_state = mono_atomic_load_i32 (&mono_thread_info->thread_joinable_state);
+		if (old_joinable_state != THREAD_JOINABLE_STATE_ADDED) {
+			if (mono_atomic_cas_i32 (&mono_thread_info->thread_joinable_state, THREAD_JOINABLE_STATE_ADDED, old_joinable_state) == old_joinable_state) {
+				mono_threads_add_joinable_thread ((gpointer)(MONO_UINT_TO_NATIVE_THREAD_ID (mono_thread_info_get_tid (mono_thread_info))));
+				if (old_joinable_state == THREAD_JOINABLE_STATE_PENDING) {
+					gint32 result = mono_atomic_dec_i32 (&pending_joinable_runtime_thread_count);
+					g_assert (result >= 0);
+					if (result == 0) {
+						joinable_threads_lock ();
+						mono_os_cond_broadcast (&zero_pending_joinable_runtime_thread_event);
+						joinable_threads_unlock ();
+					}
+				}
+			}
+		}
 	}
 }
 
