@@ -186,6 +186,55 @@ static MonoNativeTlsKey mono_tls_key_lmf_addr;
 
 static gint32 tls_offsets [TLS_KEY_NUM];
 
+#ifdef HOST_WIN32
+
+void mono_tls_add_key_destructor (DWORD key, TlsKeyDestructorFuncPtr destructor_callback)
+{
+	int free_slot = -1;
+
+	for (int i = 0; i < MAX_TLS_DESTRUCTORS; i++) {
+		if (tls_key_desctructors[i].destructor_data == key && tls_key_desctructors[i].destructor_ptr == destructor_callback) {
+			g_assert ("TlsKeyDestructor already registered for current thread");
+		}
+
+		if (tls_key_desctructors [i].destructor_ptr == NULL && free_slot == -1) {
+			free_slot = i;
+		}
+	}
+
+	if (free_slot == -1)
+		g_assert ("Out of TlsKeyDestructor slots");
+
+	g_assert (free_slot < MAX_TLS_DESTRUCTORS);
+	
+	tls_key_desctructors [free_slot].destructor_data = key;
+	tls_key_desctructors [free_slot].destructor_ptr = destructor_callback;
+}
+
+void mono_tls_remove_key_destructor (DWORD key, TlsKeyDestructorFuncPtr destructor_callback)
+{
+	for (int i = 0; i < MAX_TLS_DESTRUCTORS; i++) {
+		if (tls_key_desctructors[i].destructor_data == key && tls_key_desctructors[i].destructor_ptr == destructor_callback) {
+			tls_key_desctructors[i].destructor_data = TLS_OUT_OF_INDEXES;
+			tls_key_desctructors[i].destructor_ptr = NULL;
+			break;
+		}
+	}
+}
+
+void mono_tls_run_key_destructor (void)
+{
+	for (int i = 0; i < MAX_TLS_DESTRUCTORS; i++) {
+		if (tls_key_desctructors[i].destructor_data != TLS_OUT_OF_INDEXES && tls_key_desctructors[i].destructor_ptr) {
+			tls_key_desctructors[i].destructor_ptr (tls_key_desctructors[i].destructor_data);
+			tls_key_desctructors[i].destructor_data = TLS_OUT_OF_INDEXES;
+			tls_key_desctructors[i].destructor_ptr = NULL;
+		}
+	}
+}
+
+#endif
+
 #ifdef USE_KW_THREAD
 #define MONO_TLS_GET_VALUE(tls_var,tls_key) (tls_var)
 #define MONO_TLS_SET_VALUE(tls_var,tls_key,value) (tls_var = value)

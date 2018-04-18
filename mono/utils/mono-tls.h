@@ -36,6 +36,57 @@ typedef enum {
 
 #include <windows.h>
 
+// Method working for both dynamic and static libraries to get a callback
+// called similar to DLLMain but works for all scenarios. It should be possible to
+// use this as a trigger to emulate pthread destructors on windows using VC compiler.
+
+// For C++11 it is possible to use thread_local and RAII to complete similar. This will be portable
+// between Windows C++ compilers as well, but then we will need to include C++11 sources and depend on C++
+// compiler for that source file.
+
+// If below works as expected, the /TLS switch on dumpbin should display callback in table:
+
+//TLS Callbacks
+//
+//Address
+//----------------
+//000000014001156E  @ILT+1385(__dyn_tls_init)
+//0000000140019250
+//0000000140011631  @ILT+1580(tls_callback_test_func)
+//0000000000000000
+
+//extern "C"
+//void NTAPI tls_callback_test_func (PVOID DllHandle, DWORD dwReason, PVOID)
+//{
+//	char outputBuffer[255];
+//	sprintf_s (outputBuffer, "tls_callback_test_func called with dwReason = %d\n", dwReason);
+//	OutputDebugStringA (outputBuffer);
+//}
+//
+//#pragma comment (linker, "/INCLUDE:_tls_used")
+//
+//#pragma const_seg(".CRT$XLF")
+//
+//extern "C" const PIMAGE_TLS_CALLBACK tls_callback_test = tls_callback_test_func;
+//
+//#pragma const_seg()
+
+// Add method where we can store the key + destructor.
+// Use static declspec(thread), we could probably use a small set of array for this. Mono currently needs 2.
+// Should it be a fixed size array of destructor slots?
+//
+
+typedef void (*TlsKeyDestructorFuncPtr)(DWORD);
+
+typedef struct _TlsKeyDestructor {
+	TlsKeyDestructorFuncPtr destructor_ptr;
+	DWORD destructor_data;
+} TlsKeyDestructor;
+
+#define MAX_TLS_DESTRUCTORS 16
+
+static __declspec(thread) TlsKeyDestructor tls_key_desctructors[MAX_TLS_DESTRUCTORS];
+
 #define MonoNativeTlsKey DWORD
 #define mono_native_tls_alloc(key,destructor) ((*(key) = TlsAlloc ()) != TLS_OUT_OF_INDEXES && destructor == NULL)
 #define mono_native_tls_free TlsFree
