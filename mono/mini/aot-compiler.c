@@ -747,7 +747,7 @@ emit_symbol_size (MonoAotCompile *acfg, const char *name, const char *end_label)
 
 /* Emit a symbol which is referenced by the MonoAotFileInfo structure */
 static void
-emit_info_symbol (MonoAotCompile *acfg, const char *name)
+emit_info_symbol (MonoAotCompile *acfg, const char *name, gboolean func)
 {
 	char symbol [MAX_SYMBOL_SIZE];
 
@@ -756,7 +756,12 @@ emit_info_symbol (MonoAotCompile *acfg, const char *name)
 		/* LLVM generated code references this */
 		sprintf (symbol, "%s%s%s", acfg->user_symbol_prefix, acfg->global_prefix, name);
 		emit_label (acfg, symbol);
+
+#ifndef TARGET_WIN32_MSVC
 		emit_global_inner (acfg, symbol, FALSE);
+#else
+		emit_global_inner (acfg, symbol, func);
+#endif
 	} else {
 		emit_label (acfg, name);
 	}
@@ -3555,6 +3560,20 @@ get_plt_symbol (MonoAotCompile *acfg, int plt_offset, MonoJumpInfo *patch_info)
 #endif
 }
 
+static char*
+get_plt_symbol_llvm (MonoAotCompile *acfg, MonoPltEntry *plt_entry, MonoJumpInfo *patch_info)
+{
+#ifndef TARGET_WIN32_MSVC
+	return get_plt_symbol (acfg, plt_entry->plt_offset, patch_info);
+#else
+	if (plt_entry->debug_sym)
+		return g_strdup_printf ("p_%d_%s_llvm", plt_entry->plt_offset, plt_entry->debug_sym);
+	else
+		return g_strdup_printf ("p_%d_llvm", plt_entry->plt_offset);
+#endif
+
+}
+
 /*
  * get_plt_entry:
  *
@@ -3602,10 +3621,8 @@ get_plt_entry (MonoAotCompile *acfg, MonoJumpInfo *patch_info)
 				res->debug_sym = g_strdup_printf ("%s_%d", res->debug_sym, synchronized_symbol_idx);
 			synchronized_symbol_idx ++;
 		}
-		if (res->debug_sym)
-			res->llvm_symbol = g_strdup_printf ("%s_%s_llvm", res->symbol, res->debug_sym);
-		else
-			res->llvm_symbol = g_strdup_printf ("%s_llvm", res->symbol);
+
+		res->llvm_symbol = get_plt_symbol_llvm (acfg, res, patch_info);
 
 		g_hash_table_insert (acfg->patch_to_plt_entry [new_ji->type], new_ji, res);
 
@@ -6640,7 +6657,7 @@ emit_plt (MonoAotCompile *acfg)
 
 	emit_section_change (acfg, ".text", 0);
 	emit_alignment_code (acfg, 16);
-	emit_info_symbol (acfg, "plt");
+	emit_info_symbol (acfg, "plt", TRUE);
 	emit_label (acfg, acfg->plt_symbol);
 
 	for (i = 0; i < acfg->plt_offset; ++i) {
@@ -6744,7 +6761,7 @@ emit_plt (MonoAotCompile *acfg)
 
 	emit_symbol_size (acfg, acfg->plt_symbol, ".");
 
-	emit_info_symbol (acfg, "plt_end");
+	emit_info_symbol (acfg, "plt_end", TRUE);
 
 	arch_emit_unwind_info_sections (acfg, "plt", "plt_end", NULL);
 }
@@ -7062,7 +7079,7 @@ emit_trampolines (MonoAotCompile *acfg)
 				emit_local_symbol (acfg, symbol, end_symbol, TRUE);
 
 			emit_alignment_code (acfg, AOT_FUNC_ALIGNMENT);
-			emit_info_symbol (acfg, symbol);
+			emit_info_symbol (acfg, symbol, TRUE);
 
 			acfg->trampoline_got_offset_base [ntype] = tramp_got_offset;
 
@@ -9046,7 +9063,7 @@ emit_code (MonoAotCompile *acfg)
 	 */
 	emit_section_change (acfg, ".text", 0);
 	emit_alignment_code (acfg, 8);
-	emit_info_symbol (acfg, "jit_code_start");
+	emit_info_symbol (acfg, "jit_code_start", TRUE);
 
 	/* 
 	 * Emit some padding so the local symbol for the first method doesn't have the
@@ -9153,7 +9170,7 @@ emit_code (MonoAotCompile *acfg)
 
 	emit_section_change (acfg, ".text", 0);
 	emit_alignment_code (acfg, 8);
-	emit_info_symbol (acfg, "jit_code_end");
+	emit_info_symbol (acfg, "jit_code_end", TRUE);
 
 	/* To distinguish it from the next symbol */
 	emit_padding (acfg, 4);
@@ -9181,7 +9198,7 @@ emit_code (MonoAotCompile *acfg)
 	sprintf (symbol, "method_addresses");
 	emit_section_change (acfg, ".text", 1);
 	emit_alignment_code (acfg, 8);
-	emit_info_symbol (acfg, symbol);
+	emit_info_symbol (acfg, symbol, TRUE);
 	if (acfg->aot_opts.write_symbols)
 		emit_local_symbol (acfg, symbol, "method_addresses_end", TRUE);
 	emit_unset_mode (acfg);
@@ -9208,7 +9225,7 @@ emit_code (MonoAotCompile *acfg)
 	sprintf (symbol, "unbox_trampolines");
 	emit_section_change (acfg, RODATA_SECT, 0);
 	emit_alignment (acfg, 8);
-	emit_info_symbol (acfg, symbol);
+	emit_info_symbol (acfg, symbol, FALSE);
 
 	prev_index = -1;
 	for (i = 0; i < acfg->nmethods; ++i) {
@@ -9232,14 +9249,14 @@ emit_code (MonoAotCompile *acfg)
 		}
 	}
 	sprintf (symbol, "unbox_trampolines_end");
-	emit_info_symbol (acfg, symbol);
+	emit_info_symbol (acfg, symbol, FALSE);
 	emit_int32 (acfg, 0);
 
 	/* Emit a separate table with the trampoline addresses/offsets */
 	sprintf (symbol, "unbox_trampoline_addresses");
 	emit_section_change (acfg, ".text", 0);
 	emit_alignment_code (acfg, 8);
-	emit_info_symbol (acfg, symbol);
+	emit_info_symbol (acfg, symbol, TRUE);
 
 	for (i = 0; i < acfg->nmethods; ++i) {
 		MonoCompile *cfg;
@@ -9723,7 +9740,7 @@ emit_unwind_info (MonoAotCompile *acfg)
 	sprintf (symbol, "unwind_info");
 	emit_section_change (acfg, RODATA_SECT, 1);
 	emit_alignment (acfg, 8);
-	emit_info_symbol (acfg, symbol);
+	emit_info_symbol (acfg, symbol, TRUE);
 
 	for (i = 0; i < acfg->unwind_ops->len; ++i) {
 		guint32 index = GPOINTER_TO_UINT (g_ptr_array_index (acfg->unwind_ops, i));
@@ -10012,7 +10029,7 @@ emit_got (MonoAotCompile *acfg)
 		emit_local_symbol (acfg, symbol, "got_end", FALSE);
 	emit_label (acfg, symbol);
 	if (acfg->llvm)
-		emit_info_symbol (acfg, "jit_got");
+		emit_info_symbol (acfg, "jit_got", FALSE);
 	if (acfg->got_offset > 0)
 		emit_zero_bytes (acfg, (int)(acfg->got_offset * sizeof (gpointer)));
 #endif
@@ -10167,7 +10184,7 @@ emit_globals (MonoAotCompile *acfg)
 	emit_section_change (acfg, ".data", 0);
 	/* This is not a global, since it is accessed by the init function */
 	emit_alignment (acfg, 8);
-	emit_info_symbol (acfg, symbol);
+	emit_info_symbol (acfg, symbol, FALSE);
 
 	sprintf (symbol, "%sglobals_hash", acfg->temp_prefix);
 	emit_pointer (acfg, symbol);
@@ -10727,7 +10744,7 @@ emit_codeview_info (MonoAotCompile *acfg)
 	for (i = 0; i < acfg->nmethods; ++i) {
 		MonoCompile *cfg = acfg->cfgs[i];
 
-		if (!cfg)
+		if (!cfg || COMPILE_LLVM (cfg))
 			continue;
 
 		int ret = g_snprintf (symbol_buffer, G_N_ELEMENTS (symbol_buffer), "%sme_%x", acfg->temp_prefix, i);
@@ -11200,8 +11217,8 @@ compile_asm (MonoAotCompile *acfg)
 #ifdef TARGET_WIN32_MSVC
 	g_assert (tmp_outfile_name != NULL);
 	g_assert (objfile != NULL);
-	command = g_strdup_printf ("\"%s%s\" %s %s /OUT:\"%s\" \"%s\"", tool_prefix, LD_NAME,
-			acfg->aot_opts.nodebug ? LD_OPTIONS : LD_DEBUG_OPTIONS, ld_flags, tmp_outfile_name, objfile);
+	command = g_strdup_printf ("\"%s%s\" %s %s /OUT:%s %s %s", tool_prefix, LD_NAME,
+			acfg->aot_opts.nodebug ? LD_OPTIONS : LD_DEBUG_OPTIONS, ld_flags, wrap_path (tmp_outfile_name), wrap_path (objfile), wrap_path (llvm_ofile));
 #elif defined(LD_NAME)
 	command = g_strdup_printf ("%s%s %s -o %s %s %s %s", tool_prefix, LD_NAME, LD_OPTIONS,
 		wrap_path (tmp_outfile_name), wrap_path (llvm_ofile),
@@ -12819,8 +12836,6 @@ mono_compile_assembly (MonoAssembly *ass, guint32 opts, const char *aot_options,
 
 	emit_file_info (acfg);
 
-	emit_library_info (acfg);
-
 	if (acfg->dwarf) {
 		emit_dwarf_info (acfg);
 		mono_dwarf_writer_close (acfg->dwarf);
@@ -12849,6 +12864,8 @@ mono_compile_assembly (MonoAssembly *ass, guint32 opts, const char *aot_options,
 			return 1;
 	}
 #endif
+
+	emit_library_info (acfg);
 
 	TV_GETTIME (btv);
 
