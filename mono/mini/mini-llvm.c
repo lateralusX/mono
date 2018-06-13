@@ -8495,6 +8495,41 @@ mono_llvm_create_aot_module (MonoAssembly *assembly, const char *global_prefix, 
 	}
 #endif
 
+#if defined(TARGET_AMD64) && defined(TARGET_WIN32) && defined(HOST_WIN32) && defined(_MSC_VER)
+	const char linker_options[] = "Linker Options";
+	const char *default_static_lib_names[] = { "/DEFAULTLIB:libcmt",
+												"/DEFAULTLIB:libucrt.lib",
+												"/DEFAULTLIB:libvcruntime.lib" };
+	const char *default_dynamic_lib_names[] = { "/DEFAULTLIB:msvcrt",
+												"/DEFAULTLIB:ucrt.lib",
+												"/DEFAULTLIB:vcruntime.lib" };
+
+	LLVMValueRef linker_option_args[3];
+	LLVMValueRef default_lib_args[G_N_ELEMENTS (default_static_lib_names)];
+	LLVMValueRef default_lib_nodes[G_N_ELEMENTS(default_dynamic_lib_names)];
+
+	g_assert (G_N_ELEMENTS (default_static_lib_names) == G_N_ELEMENTS (default_dynamic_lib_names));
+
+	const char *default_lib_name = NULL;
+	for (int i = 0; i < G_N_ELEMENTS (default_static_lib_names); ++i) {
+		const char *default_lib_name = NULL;
+
+		if (static_link)
+			default_lib_name = default_static_lib_names[i];
+		else
+			default_lib_name = default_dynamic_lib_names[i];
+
+		default_lib_args[i] = LLVMMDString (default_lib_name, strlen (default_lib_name));
+		default_lib_nodes[i] = LLVMMDNode (default_lib_args + i, 1);
+	}
+
+	linker_option_args[0] = LLVMConstInt (LLVMInt32Type (), 1, FALSE);
+	linker_option_args[1] = LLVMMDString (linker_options, G_N_ELEMENTS (linker_options) - 1);
+	linker_option_args[2] = LLVMMDNode (default_lib_nodes, G_N_ELEMENTS (default_lib_nodes));
+
+	LLVMAddNamedMetadataOperand (module->lmodule, "llvm.module.flags", LLVMMDNode (linker_option_args, G_N_ELEMENTS (linker_option_args)));
+#endif
+
 	/* Add GOT */
 	/*
 	 * We couldn't compute the type of the LLVM global representing the got because
