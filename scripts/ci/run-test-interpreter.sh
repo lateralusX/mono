@@ -14,7 +14,7 @@ ${TESTCMD} --label=System.Core --timeout=160m make -w -C mcs/class/System.Core r
 ${TESTCMD} --label=mcs-tests --timeout=160m make -w -C mcs/tests run-test V=1;
 ${TESTCMD} --label=Mono.Debugger.Soft --timeout=5m make -w -C mcs/class/Mono.Debugger.Soft run-test V=1
 
-if [[ ${CI_TAGS} != *'pull-request'* ]] || [[ ${CI_TAGS} != *'arm'* ]]; then
+if [[ ${CI_TAGS} != *'pull-request'* ]] && [[ ${CI_TAGS} != *'arm'* ]]; then
 
 	${TESTCMD} --label=corlib-xunit --timeout=60m make -w -C mcs/class/corlib run-xunit-test
 	${TESTCMD} --label=System.XML --timeout=5m make -w -C mcs/class/System.XML run-test V=1
