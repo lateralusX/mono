@@ -290,8 +290,10 @@ mono_tls_get_tls_getter (MonoTlsKey key)
 		return (MonoTlsGetter)mono_tls_get_sgen_thread_info;
 	case TLS_KEY_LMF_ADDR:
 		return (MonoTlsGetter)mono_tls_get_lmf_addr;
+	default:
+		g_assert_not_reached ();
 	}
-	g_assert_not_reached ();
+
 	return NULL;
 }
 
@@ -310,8 +312,10 @@ mono_tls_get_tls_setter (MonoTlsKey key)
 		return (MonoTlsSetter)mono_tls_set_sgen_thread_info;
 	case TLS_KEY_LMF_ADDR:
 		return (MonoTlsSetter)mono_tls_set_lmf_addr;
+	default:
+		g_assert_not_reached ();
 	}
-	g_assert_not_reached ();
+
 	return NULL;
 }
 
