@@ -950,7 +950,6 @@ static gboolean
 is_xdomain_ref_allowed (GCObject **ptr, GCObject *obj, MonoDomain *domain)
 {
 	MonoObject *o = (MonoObject*)(obj);
-	MonoObject *ref = *ptr;
 	size_t offset = (char*)(ptr) - (char*)o;
 
 #ifndef ENABLE_NETCORE

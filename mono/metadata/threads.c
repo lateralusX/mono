@@ -6393,6 +6393,7 @@ summarizer_state_init (SummarizerGlobalState *state, MonoNativeThreadId current,
 static void
 summarizer_signal_other_threads (SummarizerGlobalState *state, MonoNativeThreadId current, int current_idx)
 {
+#ifdef HAVE_SIGNAL_H
 	sigset_t sigset, old_sigset;
 	sigemptyset(&sigset);
 	sigaddset(&sigset, SIGTERM);
@@ -6402,7 +6403,6 @@ summarizer_signal_other_threads (SummarizerGlobalState *state, MonoNativeThreadI
 
 		if (i == current_idx)
 			continue;
-
 	#ifdef HAVE_PTHREAD_KILL
 		pthread_kill (state->thread_array [i], SIGTERM);
 
@@ -6412,6 +6412,7 @@ summarizer_signal_other_threads (SummarizerGlobalState *state, MonoNativeThreadI
 		g_error ("pthread_kill () is not supported by this platform");
 	#endif
 	}
+#endif
 }
 
 // Returns true when there are shared global references to "this_thread"
